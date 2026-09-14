@@ -16,6 +16,17 @@ const SRC = {
   fire: "산림청 산불위험예보",
   internal: "로봇 관제 시스템(내부)",
   engine: "자체 판단엔진",
+  osm: "OSM Nominatim 주소검색",
+  vworld: "VWorld 지오코딩",
+  click: "지도에서 선택",
+};
+
+// 검색 위치(미등록 필지)에 적용할 작물 가정값
+const CROP_PRESETS = {
+  "apple-hongro": { crop: "사과", cultivar: "홍로", maturity: "중생종", stage: "수확기", harvestable: true },
+  "apple-fuji": { crop: "사과", cultivar: "후지", maturity: "만생종", stage: "착색기", harvestable: false },
+  "apple-shinano": { crop: "사과", cultivar: "시나노골드", maturity: "중만생종", stage: "과실비대후기", harvestable: false },
+  "pear-singo": { crop: "배", cultivar: "신고", maturity: "만생종", stage: "성숙기", harvestable: false },
 };
 
 const BASE_DATE = "2026-09-15"; // 72시간 예보 시작일 (00시)
@@ -26,7 +37,7 @@ const FIELDS = [
     id: "F-101", name: "밤*골농장", crop: "사과", cultivar: "홍로", maturity: "중생종",
     stage: "수확기", harvestable: true,
     address: "포항시 북구 죽장면 두마리 1294", pnu: "4711338021112940000",
-    area: 3420, landUse: "과수원", lat: 36.2212, lon: 129.1347,
+    area: 3420, landUse: "과수원", lat: 36.1687, lon: 129.0209,
     tempOffset: -1.4, windOffset: -0.3, slope: 18, rainFactor: 1.1,
     lastSpray: "2026-09-05", lastRainMm: 12, dryDays: 5,
     soil: { pH: 5.6, om: 27, p: 240, k: 0.61, ca: 4.2, mg: 1.6, ec: 0.8 },
@@ -35,7 +46,7 @@ const FIELDS = [
     id: "F-102", name: "솔밭농장", crop: "사과", cultivar: "후지", maturity: "만생종",
     stage: "착색기", harvestable: false,
     address: "포항시 북구 기북면 성법리 200", pnu: "4711336025102000000",
-    area: 5180, landUse: "과수원", lat: 36.2634, lon: 129.2384,
+    area: 5180, landUse: "과수원", lat: 36.1768, lon: 129.1975,
     tempOffset: -0.9, windOffset: 0.2, slope: 12, rainFactor: 1.0,
     lastSpray: "2026-09-08", lastRainMm: 12, dryDays: 5,
     soil: { pH: 6.3, om: 19, p: 265, k: 0.72, ca: 5.4, mg: 1.8, ec: 0.6 },
@@ -44,7 +55,7 @@ const FIELDS = [
     id: "F-103", name: "바다뜰농장", crop: "배", cultivar: "신고", maturity: "만생종",
     stage: "성숙기", harvestable: false,
     address: "포항시 북구 흥해읍 매산리 55", pnu: "4711325332100550000",
-    area: 2760, landUse: "과수원", lat: 36.1027, lon: 129.3452,
+    area: 2760, landUse: "과수원", lat: 36.1129, lon: 129.3105,
     tempOffset: 0.6, windOffset: 2.6, slope: 4, rainFactor: 0.5,
     lastSpray: "2026-09-11", lastRainMm: 9, dryDays: 8,
     soil: { pH: 6.1, om: 31, p: 420, k: 0.66, ca: 5.6, mg: 1.7, ec: 1.1 },
@@ -53,7 +64,7 @@ const FIELDS = [
     id: "F-104", name: "청하사과원", crop: "사과", cultivar: "홍로", maturity: "중생종",
     stage: "수확기", harvestable: true,
     address: "포항시 북구 청하면 명안리 318", pnu: "4711331031103180000",
-    area: 4050, landUse: "과수원", lat: 36.1952, lon: 129.3318,
+    area: 4050, landUse: "과수원", lat: 36.1909, lon: 129.2821,
     tempOffset: 0.2, windOffset: 1.8, slope: 7, rainFactor: 0.8,
     lastSpray: "2026-09-02", lastRainMm: 10, dryDays: 5,
     soil: { pH: 6.2, om: 29, p: 230, k: 0.42, ca: 5.1, mg: 1.5, ec: 0.9 },
@@ -62,7 +73,7 @@ const FIELDS = [
     id: "F-105", name: "신광농원", crop: "사과", cultivar: "시나노골드", maturity: "중만생종",
     stage: "과실비대후기", harvestable: false,
     address: "포항시 북구 신광면 반곡리 77", pnu: "4711334027100770000",
-    area: 2980, landUse: "과수원", lat: 36.1318, lon: 129.2651,
+    area: 2980, landUse: "과수원", lat: 36.1652, lon: 129.2744,
     tempOffset: -0.2, windOffset: 0.0, slope: 9, rainFactor: 0.9,
     lastSpray: "2026-09-09", lastRainMm: 11, dryDays: 5,
     soil: { pH: 6.4, om: 33, p: 280, k: 0.58, ca: 5.9, mg: 1.9, ec: 2.4 },

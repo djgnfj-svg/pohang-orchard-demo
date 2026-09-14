@@ -18,6 +18,12 @@
         <div class="brand-sub">필지 단위 농작업 의사결정 · 데모</div>
       </div>
     </div>
+    <form class="search" id="search-form" role="search" autocomplete="off">
+      <label for="search-input" class="sr-only">주소·지번·농장명 검색</label>
+      <input id="search-input" type="search" placeholder="주소·지번·농장명 검색 (예: 포항 죽장면 두마리)">
+      <button type="submit" id="search-btn">검색</button>
+      <ul class="search-results" id="search-results" hidden></ul>
+    </form>
     <div class="topbar-meta">
       <span class="chip chip-mock" title="모든 수치는 화면 확인용 예시 데이터입니다">목업 데이터</span>
       <span class="chip" id="alert-chip"></span>
@@ -56,3 +62,4 @@
 <script src="engine.js"></script>
 <script src="ui.js"></script>
 <script src="app.js"></script>
+<script src="search.js"></script>

@@ -7,12 +7,20 @@ const fmt = (n) => n.toLocaleString("ko-KR");
 const STATUS_ICON = { good: "✓", warning: "!", critical: "✕", neutral: "–", na: "·" };
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const HOURLY = Object.fromEntries(FIELDS.map((f) => [f.id, buildHourly(f)]));
+const hourlyCache = new Map();
 const evalCache = new Map();
+function hourlyOf(f) {
+  if (!hourlyCache.has(f.id)) hourlyCache.set(f.id, buildHourly(f));
+  return hourlyCache.get(f.id);
+}
 function evalAt(f, t) {
   const k = `${f.id}:${t}`;
-  if (!evalCache.has(k)) evalCache.set(k, evaluate(f, HOURLY[f.id], t));
+  if (!evalCache.has(k)) evalCache.set(k, evaluate(f, hourlyOf(f), t));
   return evalCache.get(k);
+}
+function invalidateField(id) {
+  hourlyCache.delete(id);
+  for (const k of [...evalCache.keys()]) if (k.startsWith(`${id}:`)) evalCache.delete(k);
 }
 
 const state = { id: FIELDS[0].id, t: DEFAULT_HOUR, index: "spray", tab: "hourly", openWhy: new Set() };
@@ -55,24 +63,26 @@ $("#index-switch").addEventListener("click", (ev) => {
   renderAll();
 });
 $("#field-list").addEventListener("click", (ev) => {
+  const rm = ev.target.closest("[data-remove]");
+  if (rm) return removeTempField(rm.dataset.remove);
   const b = ev.target.closest(".field-row");
   if (b) select(b.dataset.id, true);
 });
 
 function renderList() {
   const idx = INDEXES.find((i) => i.key === state.index);
-  $("#field-count").textContent = `${FIELDS.length}필지 · ${idx.label} ${idx.kind === "need" ? "필요도" : "적합도"}`;
+  $("#field-count").textContent = `${FIELDS.filter((f) => !f.temp).length}필지 · ${idx.label} ${idx.kind === "need" ? "필요도" : "적합도"}`;
   document.querySelectorAll("#index-switch button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.key === state.index)));
 
   $("#field-list").innerHTML = FIELDS.map((f) => {
     const v = evalAt(f, state.t)[state.index];
-    return `<li><button type="button" class="field-row" id="row-${f.id}" data-id="${f.id}" aria-pressed="${f.id === state.id}">
+    return `<li class="${f.temp ? "is-temp" : ""}"><button type="button" class="field-row" id="row-${f.id}" data-id="${f.id}" aria-pressed="${f.id === state.id}">
       <span class="fr-main">
-        <span class="fr-name">${esc(f.name)}</span>
+        <span class="fr-name">${f.temp ? '<span class="tag">검색</span>' : ""}${esc(f.name)}</span>
         <span class="fr-meta">${f.crop} ${esc(f.cultivar)} · ${fmt(f.area)}㎡ · ${esc(f.stage)}</span>
       </span>
       <span class="fr-score"><span class="num">${v.score ?? "–"}</span>${pill(v.status)}</span>
-    </button></li>`;
+    </button>${f.temp ? `<button type="button" class="fr-remove" id="rm-${f.id}" data-remove="${f.id}" aria-label="검색 위치 지우기">×</button>` : ""}</li>`;
   }).join("");
 
   const keys = idx.kind === "need"
@@ -142,19 +152,25 @@ function parcel(f, i, j, widthScale = 1) {
 }
 
 const fieldLayers = {};
-FIELDS.forEach((f) => {
+function addFieldLayers(f) {
+  const group = L.layerGroup().addTo(map);
   for (let i = -2; i <= 2; i++) {
     for (let j = -2; j <= 2; j++) {
       if (!i && !j) continue;
-      L.polygon(parcel(f, i, j, 0.8 + (Math.abs(i * 3 + j) % 3) * 0.08), { className: "nb-parcel", interactive: false }).addTo(map);
+      L.polygon(parcel(f, i, j, 0.8 + (Math.abs(i * 3 + j) % 3) * 0.08), { className: "nb-parcel", interactive: false }).addTo(group);
     }
   }
-  const poly = L.polygon(parcel(f, 0, 0), { className: "field-parcel" }).addTo(map);
+  const poly = L.polygon(parcel(f, 0, 0), { className: "field-parcel", bubblingMouseEvents: false }).addTo(group);
   poly.on("click", () => select(f.id, false));
-  const pin = L.marker([f.lat, f.lon], { keyboard: false }).addTo(map);
+  const pin = L.marker([f.lat, f.lon], { keyboard: false }).addTo(group);
   pin.on("click", () => select(f.id, true));
-  fieldLayers[f.id] = { poly, pin };
-});
+  fieldLayers[f.id] = { group, poly, pin };
+}
+function removeFieldLayers(id) {
+  fieldLayers[id]?.group.remove();
+  delete fieldLayers[id];
+}
+FIELDS.forEach(addFieldLayers);
 
 function fitAll() {
   map.fitBounds(L.latLngBounds(FIELDS.map((f) => [f.lat, f.lon])).pad(0.2), { animate: !reduceMotion });
@@ -216,12 +232,9 @@ function scoreRow(i, v) {
   </li>`;
 }
 
-function renderDetail() {
-  const f = currentField();
-  const r = HOURLY[f.id][state.t];
-  const e = evalAt(f, state.t);
-  $("#detail").innerHTML = `
-    <div class="d-head">
+function detailHead(f) {
+  if (!f.temp) {
+    return `
       <div class="d-title"><h2>${esc(f.name)}</h2><span class="d-id">${f.id}</span></div>
       <div class="d-addr">${esc(f.address)}</div>
       <dl class="d-facts">
@@ -229,8 +242,32 @@ function renderDetail() {
         <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
         <div><dt>면적 · 판독</dt><dd><span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}</dd></div>
         <div><dt>PNU</dt><dd class="mono">${f.pnu}${src("parcel")}</dd></div>
-      </dl>
-    </div>
+      </dl>`;
+  }
+  const options = Object.entries(CROP_PRESETS)
+    .map(([k, p]) => `<option value="${k}"${k === f.preset ? " selected" : ""}>${p.crop} ${p.cultivar} · ${p.stage}</option>`)
+    .join("");
+  return `
+    <div class="d-title"><h2>${esc(f.name)}</h2><span class="d-id">${f.id}</span><span class="tag">미등록 필지</span></div>
+    <div class="d-addr">${esc(f.address)}${src(f.geocoder)}</div>
+    <dl class="d-facts">
+      <div><dt><label for="crop-preset">작물 · 품종 (선택)</label></dt><dd><select id="crop-preset">${options}</select></dd></div>
+      <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
+      <div><dt>면적</dt><dd><span class="mono">${fmt(f.area)}㎡</span> <small>예시</small></dd></div>
+      <div><dt>좌표</dt><dd class="mono">${f.lat.toFixed(5)}, ${f.lon.toFixed(5)}</dd></div>
+    </dl>
+    <div class="d-actions">
+      <button type="button" class="btn" id="add-field">내 농지에 추가</button>
+      <small>경계·PNU·토양은 API 키 연동 후 실제 값으로 바뀝니다</small>
+    </div>`;
+}
+
+function renderDetail() {
+  const f = currentField();
+  const r = hourlyOf(f)[state.t];
+  const e = evalAt(f, state.t);
+  $("#detail").innerHTML = `
+    <div class="d-head">${detailHead(f)}</div>
     <div class="d-weather">
       <div class="d-sec-head"><h3>${hourLabel(state.t)} 기상</h3>${src(state.t === DEFAULT_HOUR ? "ncst" : "fcst")}</div>
       <div class="wx">
@@ -266,7 +303,7 @@ function renderTabs() {
     (tb) => `<button type="button" role="tab" id="tab-${tb.key}" data-key="${tb.key}" aria-selected="${tb.key === state.tab}">${tb.label}</button>`
   ).join("");
   const f = currentField();
-  const ctx = { field: f, rows: HOURLY[f.id], t: state.t, e: evalAt(f, state.t), evalAt, setHour };
+  const ctx = { field: f, rows: hourlyOf(f), t: state.t, e: evalAt(f, state.t), evalAt, setHour };
   const tab = TABS.find((x) => x.key === state.tab);
   const body = $("#tab-body");
   body.innerHTML = tab.render(ctx);
