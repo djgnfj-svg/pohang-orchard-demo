@@ -1,38 +1,24 @@
 // ---------------------------------------------------------------------------
-// 주소 검색 · 지도 클릭 → 그 위치의 필지 데이터를 한 화면에 모아보기
-// 검색 순서: 등록 농지 이름/주소 → VWorld 검색 → 네이버 Geocoding(?map=naver) → Flask /api/geocode → OSM Nominatim
-// 필지 경계·PNU·지목·면적은 VWorld 연속지적도(applyParcel), 토양·기상 보정값은 좌표 기반 목업
+// 주소 검색 · 지도 클릭 → 그 위치의 필지(VWorld 연속지적도)를 선택
+// 검색 순서: 내 필지 주소 → VWorld 검색 → 네이버 Geocoding(?map=naver) → OSM Nominatim
 // ---------------------------------------------------------------------------
 const searchForm = $("#search-form");
 const searchInput = $("#search-input");
 const searchBtn = $("#search-btn");
 const searchResults = $("#search-results");
-let tempSeq = 0;
+let selSeq = 0;
 let lastResults = [];
 
 const mapHint = document.createElement("div");
 mapHint.className = "map-hint";
-mapHint.textContent = "지도를 누르면 그 위치를 분석합니다";
+mapHint.textContent = "지도를 누르면 그 자리의 필지를 조회합니다";
 $(".map-wrap").appendChild(mapHint);
-
-function seeded(key) {
-  let h = 2166136261;
-  for (const c of key) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return () => { h ^= h << 13; h ^= h >>> 17; h ^= h << 5; return ((h >>> 0) % 100000) / 100000; };
-}
 
 // Nominatim "두마리, 죽장면, 북구, 포항시, 경상북도, 37800, 대한민국" → "경상북도 포항시 북구 죽장면 두마리"
 function krAddress(displayName) {
   return displayName.split(",").map((s) => s.trim())
     .filter((s) => s && s !== "대한민국" && !/^\d{5}$/.test(s))
     .reverse().join(" ");
-}
-
-function distKm(lat1, lon1, lat2, lon2) {
-  const toR = Math.PI / 180;
-  const x = (lon2 - lon1) * toR * Math.cos(((lat1 + lat2) / 2) * toR);
-  const y = (lat2 - lat1) * toR;
-  return Math.sqrt(x * x + y * y) * 6371;
 }
 
 // Nominatim은 "면 + 리" 조합이나 지번을 잘 못 찾으므로 점점 넓혀가며 재시도 (이용정책상 1초 간격)
@@ -61,20 +47,12 @@ async function nominatimSearch(q) {
 }
 
 async function geocode(q) {
-  const out = [];
   const key = q.replace(/\s+/g, "");
-  FIELDS.filter((f) => !f.temp && (f.name.replace(/\s+/g, "").includes(key) || f.address.replace(/\s+/g, "").includes(key)))
-    .forEach((f) => out.push({ label: f.name, sub: f.address, lat: f.lat, lon: f.lon, fieldId: f.id, source: "registered" }));
+  const out = state.saved.filter((p) => String(p.address).replace(/\s+/g, "").includes(key))
+    .map((p) => ({ label: p.label, sub: p.address, lat: p.lat, lon: p.lon, parcelId: p.id, source: "saved" }));
 
   if (!out.length) out.push(...(await vworldSearch(q)));
   if (!out.length) out.push(...(await naverGeocode(q)));
-
-  if (!out.length) try {
-    const r = await fetch(`../api/geocode?address=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(4000) });
-    const j = r.ok ? await r.json() : null;
-    if (j?.source === "vworld") out.push({ label: q, sub: "VWorld 지오코딩 결과", lat: j.lat, lon: j.lon, source: "vworld" });
-  } catch { /* 정적 배포(GitHub Pages)나 파일로 열었을 때는 서버 없음 */ }
-
   if (!out.length) {
     try {
       const { rows, used } = await nominatimSearch(q);
@@ -83,12 +61,12 @@ async function geocode(q) {
         const approx = used !== q ? ` · '${used}'로 찾은 근사 위치` : "";
         out.push({ label: x.name || addr.split(" ").pop(), sub: addr + approx, address: addr, lat: +x.lat, lon: +x.lon, source: "osm" });
       });
-    } catch { /* 네트워크 차단 시 등록 농지 결과만 */ }
+    } catch { /* 네트워크 차단 시 결과 없음 */ }
   }
   return out;
 }
 
-// 네이버 지도 Geocoding (Client ID에 Geocoding API가 켜져 있을 때만 동작, 아니면 빈 결과)
+// 네이버 지도 Geocoding (?map=naver이고 Client ID에 Geocoding API가 켜져 있을 때만 동작, 아니면 빈 결과)
 function naverService() {
   return mapView.kind === "naver" ? window.naver?.maps?.Service : null;
 }
@@ -137,53 +115,24 @@ async function reverseGeocode(lat, lon) {
   }
 }
 
-function makeTempField({ lat, lon, address, source }) {
-  const rnd = seeded(`${lat.toFixed(4)},${lon.toFixed(4)}`);
-  const pick = (min, max, d = 1) => +(min + rnd() * (max - min)).toFixed(d);
-  const coastal = lon > 129.3;
-  tempSeq += 1;
-  return {
-    id: `S-${String(tempSeq).padStart(2, "0")}`, name: "검색 위치", temp: true, preset: "apple-hongro",
-    ...CROP_PRESETS["apple-hongro"],
-    address, geocoder: source, pnu: "–", landUse: "–", parcelStatus: "loading",
-    area: Math.round(pick(1500, 6000, 0) / 10) * 10, lat, lon,
-    tempOffset: pick(-1.4, 0.8), windOffset: coastal ? pick(1.0, 2.6) : pick(-0.3, 1.0), rainFactor: pick(0.6, 1.2),
-    dryDays: 4 + Math.floor(rnd() * 5),
-    soil: { pH: pick(5.4, 6.8), om: pick(16, 38, 0), p: pick(150, 450, 0), ec: pick(0.3, 2.6) },
-  };
-}
-
-function dropField(f) {
-  FIELDS.splice(FIELDS.indexOf(f), 1);
-  removeFieldLayers(f.id);
-  invalidateField(f.id);
-}
-
-function removeTempField(id) {
-  const f = FIELDS.find((x) => x.id === id);
-  if (!f) return;
-  dropField(f);
-  if (state.id === id) state.id = FIELDS[0].id;
-  renderAll();
-}
-
-// 검색 결과/클릭 위치로 이동. 등록 농지 250m 이내면 그 농지를 선택, 아니면 검색 필지를 새로 만든다.
+// 검색 결과·지도 클릭 위치를 선택하고 그 자리의 필지를 조회. 필지가 없으면 주소만이라도 표시.
 function goTo(result) {
   closeResults();
-  if (result.fieldId) return select(result.fieldId, true);
-  const near = FIELDS.find((f) => !f.temp && distKm(f.lat, f.lon, result.lat, result.lon) < 0.25);
-  if (near) return select(near.id, true);
-  FIELDS.filter((f) => f.temp).forEach(dropField);
-  const f = makeTempField({ lat: result.lat, lon: result.lon, address: result.address || result.sub || result.label, source: result.source });
-  FIELDS.unshift(f);
-  addFieldLayers(f);
-  select(f.id, true);
+  if (result.parcelId) return select(result.parcelId, true);
+  clearSelection();
+  const p = { id: `SEL-${++selSeq}`, lat: result.lat, lon: result.lon, label: "선택 위치", address: result.address || "", status: "loading", saved: false };
+  state.selection = p;
+  drawParcel(p);
+  select(p.id, true);
   showDetailTop();
-  applyParcel(f, vworldParcelAt(f.lat, f.lon));
-  return f;
+  applyParcel(p, vworldParcelAt(p.lat, p.lon)).then(async () => {
+    if (state.selection !== p || p.status !== "none" || p.address) return;
+    p.address = (await reverseGeocode(p.lat, p.lon)) || `좌표 ${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}`;
+    if (state.id === p.id) renderDetail();
+  });
 }
 
-// 검색 후 종합 판정이 바로 보이도록 상세 패널을 맨 위로 (좁은 화면에서는 패널까지 스크롤)
+// 검색 후 필지 정보가 바로 보이도록 상세 패널을 맨 위로 (좁은 화면에서는 패널까지 스크롤)
 function showDetailTop() {
   const d = $("#detail");
   d.scrollTop = 0;
@@ -201,7 +150,7 @@ function showResults(list, q) {
     ? list.map((r, i) => `<li><button type="button" id="sr-${i}" data-i="${i}">
         <span class="sr-t">${esc(r.label)}</span>
         <span class="sr-s">${esc(r.sub)}</span>
-        <span class="src">${esc(r.source === "registered" ? "내 농지" : SRC[r.source])}</span>
+        <span class="src">${esc(SRC[r.source])}</span>
       </button></li>`).join("")
     : `<li class="sr-empty">"${esc(q)}" 결과가 없습니다. 읍·면·리 이름으로 다시 검색하거나 지도를 눌러 보세요.</li>`;
   searchResults.hidden = false;
@@ -233,28 +182,4 @@ searchInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") closeResults();
 });
 
-onMapClick(async (lat, lng) => {
-  const f = goTo({ lat, lon: lng, label: "지도 선택 위치", sub: `지도 선택 위치 (${lat.toFixed(5)}, ${lng.toFixed(5)})`, source: "click" });
-  if (!f) return;
-  const addr = await reverseGeocode(lat, lng);
-  if (addr && FIELDS.includes(f) && f.parcelStatus !== "ok") {
-    f.address = addr;
-    if (state.id === f.id) renderDetail();
-  }
-});
-
-// 검색 필지: 작물 가정 변경 / 내 농지로 추가
-$("#detail").addEventListener("change", (ev) => {
-  if (ev.target.id !== "crop-preset") return;
-  const f = currentField();
-  Object.assign(f, CROP_PRESETS[ev.target.value], { preset: ev.target.value });
-  invalidateField(f.id);
-  renderAll();
-});
-$("#detail").addEventListener("click", (ev) => {
-  if (ev.target.id !== "add-field") return;
-  const f = currentField();
-  f.temp = false;
-  f.name = `신규 필지 ${f.id.slice(2)}`;
-  renderAll();
-});
+onMapClick((lat, lng) => goTo({ lat, lon: lng }));

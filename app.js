@@ -1,99 +1,43 @@
 // ---------------------------------------------------------------------------
-// 화면 상태 · 농지 목록 · 지도 · 선택 필지 패널
+// 화면 상태 · 내 필지 목록 · 지도 · 필지 상세
+// 실제 데이터만 표시: 지도·지적도·검색·필지 정보는 VWorld. 기상·토양·병해충은 키 연결 후 추가.
 // ---------------------------------------------------------------------------
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmt = (n) => n.toLocaleString("ko-KR");
-const STATUS_ICON = { good: "✓", warning: "!", critical: "✕", neutral: "–", na: "·" };
 const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-const hourlyCache = new Map();
-const evalCache = new Map();
-function hourlyOf(f) {
-  if (!hourlyCache.has(f.id)) hourlyCache.set(f.id, buildHourly(f));
-  return hourlyCache.get(f.id);
-}
-function evalAt(f, t) {
-  const k = `${f.id}:${t}`;
-  if (!evalCache.has(k)) evalCache.set(k, evaluate(f, hourlyOf(f), t));
-  return evalCache.get(k);
-}
-function invalidateField(id) {
-  hourlyCache.delete(id);
-  for (const k of [...evalCache.keys()]) if (k.startsWith(`${id}:`)) evalCache.delete(k);
+// "경상북도 포항시 북구 죽장면 두마리 1294" → "두마리 1294"
+function shortAddr(addr) {
+  const t = String(addr || "").split(/\s+/).filter(Boolean);
+  const i = t.findLastIndex((w) => /[리동가]$/.test(w));
+  return i >= 0 ? t.slice(i).join(" ") : t.slice(-2).join(" ");
 }
 
-const state = { id: FIELDS[0].id, t: DEFAULT_HOUR, index: "spray", tab: "hourly", openWhy: new Set() };
-const currentField = () => FIELDS.find((f) => f.id === state.id);
-
-function pill(status, text) {
-  return `<span class="pill" data-s="${status.key}"><i aria-hidden="true">${STATUS_ICON[status.key]}</i>${esc(text ?? status.label)}</span>`;
+// 필지 { id, pnu, address, lat, lon, label, status: loading|ok|none, landUse, area, jiga, jigaDate, rings, saved }
+// 내 필지는 이 브라우저에만 저장 (PNU·주소·좌표만, 경계는 열 때마다 다시 조회)
+const STORE_KEY = "pohang-orchard:parcels";
+function loadSaved() {
+  try {
+    const rows = JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+    return rows.map((r) => ({ ...r, id: r.pnu, label: shortAddr(r.address), status: "loading", saved: true }));
+  } catch {
+    return [];
+  }
 }
-function src(key) {
-  return `<span class="src" title="데이터 출처">${esc(SRC[key])}</span>`;
-}
-
-// ---------------------------------------------------------------------------
-// 상단: 기준 시각, 특보
-// ---------------------------------------------------------------------------
-const hourSel = $("#hour-select");
-hourSel.innerHTML = Array.from({ length: 72 }, (_, h) => `<option value="${h}">${hourLabel(h)}</option>`).join("");
-hourSel.addEventListener("change", () => setHour(+hourSel.value));
-
-const warnAlert = ALERTS.find((a) => a.status === "warning");
-const alertChip = $("#alert-chip");
-alertChip.dataset.s = "warning";
-alertChip.innerHTML = `<i aria-hidden="true">!</i>${esc(warnAlert.kind)} ${esc(warnAlert.level)} · ${esc(warnAlert.when)}`;
-
-function setHour(h) {
-  state.t = Math.max(0, Math.min(71, h));
-  renderAll();
+function persist() {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state.saved.map(({ pnu, address, lat, lon }) => ({ pnu, address, lat, lon }))));
+  } catch { /* 저장소를 못 쓰면(사생활 보호 모드 등) 이번 방문에만 유지 */ }
 }
 
-// ---------------------------------------------------------------------------
-// 농지 목록
-// ---------------------------------------------------------------------------
-$("#index-switch").innerHTML = INDEXES.map(
-  (i) => `<button type="button" role="radio" id="idx-${i.key}" data-key="${i.key}">${i.label}</button>`
-).join("");
-$("#index-switch").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button");
-  if (!b) return;
-  state.index = b.dataset.key;
-  renderAll();
-});
-$("#field-list").addEventListener("click", (ev) => {
-  const rm = ev.target.closest("[data-remove]");
-  if (rm) return removeTempField(rm.dataset.remove);
-  const b = ev.target.closest(".field-row");
-  if (b) select(b.dataset.id, true);
-});
-
-function renderList() {
-  const idx = INDEXES.find((i) => i.key === state.index);
-  $("#field-count").textContent = `${FIELDS.filter((f) => !f.temp).length}필지 · ${idx.label} ${idx.kind === "need" ? "필요도" : "적합도"}`;
-  document.querySelectorAll("#index-switch button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.key === state.index)));
-
-  $("#field-list").innerHTML = FIELDS.map((f) => {
-    const v = evalAt(f, state.t)[state.index];
-    return `<li class="${f.temp ? "is-temp" : ""}"><button type="button" class="field-row" id="row-${f.id}" data-id="${f.id}" aria-pressed="${f.id === state.id}">
-      <span class="fr-main">
-        <span class="fr-name">${f.temp ? '<span class="tag">검색</span>' : ""}${esc(f.name)}</span>
-        <span class="fr-meta">${f.crop} ${esc(f.cultivar)} · ${fmt(f.area)}㎡ · ${esc(f.stage)}</span>
-      </span>
-      <span class="fr-score"><span class="num">${v.score ?? "–"}</span>${pill(v.status)}</span>
-    </button>${f.temp ? `<button type="button" class="fr-remove" id="rm-${f.id}" data-remove="${f.id}" aria-label="검색 위치 지우기">×</button>` : ""}</li>`;
-  }).join("");
-
-  const keys = idx.kind === "need"
-    ? [["warning", "필요 70+"], ["neutral", "검토 40–69"], ["good", "불필요"]]
-    : [["good", "적합 70+"], ["warning", "주의 40–69"], ["critical", "부적합"], ["na", "시기 아님"]];
-  $("#status-legend").innerHTML = keys.map(([k, l]) => `<span data-s="${k}"><b></b>${l}</span>`).join("");
-}
+const state = { saved: loadSaved(), selection: null, id: null };
+const allParcels = () => (state.selection ? [state.selection, ...state.saved] : state.saved);
+const current = () => allParcels().find((p) => p.id === state.id) ?? null;
+const src = (key) => `<span class="src" title="데이터 출처">${esc(SRC[key])}</span>`;
 
 // ---------------------------------------------------------------------------
 // 지도 — 기본 Leaflet + VWorld, ?map=naver면 네이버 지도(실패 시 Leaflet으로 대체) (mapview.js)
-// 필지 경계는 VWorld 연속지적도 (applyParcel)
 // ---------------------------------------------------------------------------
 let mapView = createMapView($("#map"));
 const mapClickHandlers = [];
@@ -136,17 +80,18 @@ function onMapClick(cb) {
   mapClickHandlers.push(cb);
   mapView.onClick(cb);
 }
-function addFieldLayers(f) { mapView.addField(f, select); }
-function removeFieldLayers(id) { mapView.removeField(id); }
-
-function mountFields() {
-  FIELDS.forEach(addFieldLayers);
+function drawParcel(p) {
+  mapView.removeField(p.id);
+  mapView.addField(p, select);
+}
+function mountParcels() {
+  allParcels().forEach(drawParcel);
   if (cadastralOn) mapView.toggleCadastral(true);
   renderTools();
 }
-mountFields();
+mountParcels();
 
-// 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) 대체 지도(Leaflet + Esri 위성)로 전환
+// 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) Leaflet + VWorld로 전환
 function fallbackToLeaflet(message) {
   if (mapView.kind !== "naver") return;
   mapView.destroy();
@@ -159,7 +104,7 @@ function fallbackToLeaflet(message) {
   mapClickHandlers.forEach((cb) => mapView.onClick(cb));
   activeBase = "sat";
   cadastralOn = true;
-  mountFields();
+  mountParcels();
   renderMap();
   fitAll();
   showMapNote(message);
@@ -177,168 +122,156 @@ if (mapView.kind === "naver") {
 }
 
 function fitAll() {
-  mapView.fit(FIELDS.map((f) => [f.lat, f.lon]));
+  mapView.fit(state.saved.map((p) => [p.lat, p.lon]));
 }
 
 function renderMap() {
-  FIELDS.forEach((f) => {
-    const v = evalAt(f, state.t)[state.index];
-    mapView.updateField(f, v.status.key, v.score, f.id === state.id);
-  });
+  allParcels().forEach((p) => mapView.updateField(p, p.id === state.id));
 }
 
 function select(id, fly) {
   state.id = id;
   renderAll();
-  if (fly) {
-    const f = currentField();
-    mapView.flyTo(f.lat, f.lon, 17);
-  }
+  const p = current();
+  if (fly && p) mapView.flyTo(p.lat, p.lon, 17);
 }
 
 // ---------------------------------------------------------------------------
-// 선택 필지 패널
+// 선택 위치 · 내 필지
 // ---------------------------------------------------------------------------
-$("#detail").addEventListener("toggle", (ev) => {
-  const d = ev.target;
-  if (!d.id?.startsWith("why-")) return;
-  if (d.open) state.openWhy.add(d.id); else state.openWhy.delete(d.id);
-}, true);
-
-function scoreRow(i, v) {
-  const id = `why-${i.key}`;
-  const factors = v.factors.length
-    ? v.factors.map((x) => `<li><span>${esc(x.text)}</span><span class="mono">${x.delta > 0 ? "+" : ""}${x.delta || ""}</span></li>`).join("")
-    : "<li><span>감점 요인 없음</span></li>";
-  return `<li class="score-row">
-    <details id="${id}"${state.openWhy.has(id) ? " open" : ""}>
-      <summary>
-        <span class="sr-label">${i.label}${i.kind === "need" ? "<small>필요도</small>" : ""}</span>
-        <span class="meter" aria-hidden="true"><span class="meter-fill" data-s="${v.status.key}" style="width:${v.score ?? 0}%"></span></span>
-        <span class="sr-num mono">${v.score ?? "–"}</span>
-        ${pill(v.status)}
-      </summary>
-      <ul class="factors">${factors}</ul>
-    </details>
-  </li>`;
+function clearSelection() {
+  if (!state.selection) return;
+  mapView.removeField(state.selection.id);
+  if (state.id === state.selection.id) state.id = null;
+  state.selection = null;
 }
 
-function detailHead(f) {
-  if (!f.temp) {
-    return `
-      <div class="d-title"><h2>${esc(f.name)}</h2><span class="d-id">${f.id}</span></div>
-      <div class="d-addr">${esc(f.address)}</div>
-      <dl class="d-facts">
-        <div><dt>작물 · 품종</dt><dd>${f.crop} ${esc(f.cultivar)} <small>${esc(f.maturity)}</small></dd></div>
-        <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
-        <div><dt>면적 · 지목</dt><dd><span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}${src("parcel")}</dd></div>
-        <div><dt>PNU</dt><dd class="mono">${f.pnu}${src("parcel")}</dd></div>
-      </dl>`;
+// VWorld 연속지적도 결과로 PNU·주소·지목·면적·공시지가·경계를 채우고 다시 그림
+async function applyParcel(p, lookup) {
+  const r = await lookup;
+  if (!allParcels().includes(p)) return; // 그 사이 다른 위치를 골랐거나 삭제됨
+  if (r && !p.saved) {
+    const same = state.saved.find((s) => s.pnu === r.pnu);
+    if (same) {
+      clearSelection();
+      return select(same.id, false);
+    }
   }
-  const options = Object.entries(CROP_PRESETS)
-    .map(([k, p]) => `<option value="${k}"${k === f.preset ? " selected" : ""}>${p.crop} ${p.cultivar} · ${p.stage}</option>`)
-    .join("");
-  const parcelTxt = { loading: "필지 조회 중…", none: "필지 정보 없음" }[f.parcelStatus];
-  return `
-    <div class="d-title"><h2>${esc(f.name)}</h2><span class="d-id">${f.id}</span><span class="tag">미등록 필지</span></div>
-    <div class="d-addr">${esc(f.address)}${src(f.parcelStatus === "ok" ? "parcel" : f.geocoder)}</div>
-    <dl class="d-facts">
-      <div><dt><label for="crop-preset">작물 · 품종 (가정)</label></dt><dd><select id="crop-preset">${options}</select></dd></div>
-      <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
-      <div><dt>면적 · 지목</dt><dd>${parcelTxt ?? `<span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}`}</dd></div>
-      <div><dt>PNU</dt><dd class="mono">${parcelTxt ? "–" : `${f.pnu}${src("parcel")}`}</dd></div>
-    </dl>
-    <div class="d-actions">
-      <button type="button" class="btn" id="add-field">내 농지에 추가</button>
-      <small>주소·필지는 VWorld 실제 값, 기상·토양·병해충은 목업입니다</small>
-    </div>`;
+  p.status = r ? "ok" : "none";
+  if (r) {
+    Object.assign(p, {
+      pnu: r.pnu, address: r.address, label: shortAddr(r.address), landUse: r.landUse,
+      area: r.area, jiga: r.jiga, jigaDate: r.jigaDate, rings: r.rings,
+    });
+  }
+  drawParcel(p);
+  renderAll();
 }
 
-function summaryBlock(f, e) {
-  const s = siteSummary(f, hourlyOf(f), state.t, e);
-  const word = { good: "양호", warning: "주의", critical: "위험" };
-  return `<div class="d-summary" data-s="${s.verdict.key}">
-    <div class="d-sec-head"><h3>${f.temp ? "이 위치" : "이 필지"} 지금 할 작업 · ${hourLabel(state.t)}</h3>${src("engine")}</div>
-    <div class="verdict">
-      <span class="verdict-score mono">${s.best.score}</span>
-      <div>${pill(s.verdict, `${s.best.label} ${s.verdict.label}`)}<p>${esc(s.headline)}</p></div>
-    </div>
-    <ul class="sum-list">${s.items.map((x) => `<li title="출처: ${esc(SRC[x.src])}">
-      <span class="sum-label">${x.label}</span>${pill({ key: x.status, label: word[x.status] })}<span class="sum-text">${esc(x.text)}</span>
-    </li>`).join("")}</ul>
+function saveSelection() {
+  const p = state.selection;
+  if (!p || p.status !== "ok") return;
+  clearSelection();
+  Object.assign(p, { id: p.pnu, saved: true });
+  state.saved.unshift(p);
+  persist();
+  drawParcel(p);
+  select(p.id, false);
+}
+
+function removeSaved(id) {
+  const i = state.saved.findIndex((p) => p.id === id);
+  if (i < 0) return;
+  mapView.removeField(id);
+  state.saved.splice(i, 1);
+  persist();
+  if (state.id === id) state.id = null;
+  renderAll();
+}
+
+// ---------------------------------------------------------------------------
+// 내 필지 목록
+// ---------------------------------------------------------------------------
+$("#field-list").addEventListener("click", (ev) => {
+  const rm = ev.target.closest("[data-remove]");
+  if (rm) return removeSaved(rm.dataset.remove);
+  const b = ev.target.closest(".field-row");
+  if (b) select(b.dataset.id, true);
+});
+
+function parcelMeta(p) {
+  if (p.status === "loading") return "필지 조회 중…";
+  if (p.status === "none") return "필지 정보 없음";
+  return `${p.landUse} · ${fmt(p.area)}㎡`;
+}
+
+function renderList() {
+  $("#field-count").textContent = state.saved.length ? `${state.saved.length}필지` : "";
+  $("#field-list").innerHTML = state.saved.length
+    ? state.saved.map((p) => `<li>
+        <button type="button" class="field-row" id="row-${p.id}" data-id="${p.id}" aria-pressed="${p.id === state.id}">
+          <span class="fr-name">${esc(p.label)}</span>
+          <span class="fr-meta">${esc(parcelMeta(p))}</span>
+        </button>
+        <button type="button" class="fr-remove" id="rm-${p.id}" data-remove="${p.id}" aria-label="${esc(p.label)} 삭제">×</button>
+      </li>`).join("")
+    : '<li class="empty">주소를 검색하거나 지도를 눌러 필지를 고른 뒤 <b>내 필지에 추가</b>를 누르세요.</li>';
+}
+
+// ---------------------------------------------------------------------------
+// 필지 상세
+// ---------------------------------------------------------------------------
+$("#detail").addEventListener("click", (ev) => {
+  if (ev.target.closest("#add-field")) saveSelection();
+  else if (ev.target.closest("#remove-field")) removeSaved(state.id);
+});
+
+function pendingBlock() {
+  return `<div class="d-pending">
+    <h3>연결 예정 데이터</h3>
+    <ul>${PENDING_SOURCES.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
+    <p>공공데이터포털 활용 승인 완료 · 키를 연결하면 이 필지 기준으로 표시합니다</p>
   </div>`;
 }
 
 function renderDetail() {
-  const f = currentField();
-  const r = hourlyOf(f)[state.t];
-  const e = evalAt(f, state.t);
-  $("#detail").innerHTML = `
-    <div class="d-head">${detailHead(f)}</div>
-    ${summaryBlock(f, e)}
-    <div class="d-weather">
-      <div class="d-sec-head"><h3>${hourLabel(state.t)} 기상</h3>${src(state.t === DEFAULT_HOUR ? "ncst" : "fcst")}</div>
-      <div class="wx">
-        <div><span class="wx-v">${r.temp}<small>℃</small></span><span class="wx-l">기온</span></div>
-        <div><span class="wx-v">${r.hum}<small>%</small></span><span class="wx-l">습도</span></div>
-        <div><span class="wx-v">${r.wind}<small>m/s</small></span><span class="wx-l">풍속</span></div>
-        <div><span class="wx-v">${r.pop}<small>%</small></span><span class="wx-l">강수확률</span></div>
+  const p = current();
+  if (!p) {
+    $("#detail").innerHTML = `
+      <div class="d-head">
+        <h2>필지를 선택하세요</h2>
+        <p class="d-empty">주소·지번을 검색하거나 지도를 누르면 그 자리의 필지 정보를 보여줍니다.</p>
       </div>
-      <div class="wx-sky">${r.sky}${r.pcp ? ` · 시간당 ${r.pcp}mm` : ""}</div>
+      ${pendingBlock()}`;
+    return;
+  }
+  const body = p.status === "ok"
+    ? `<dl class="d-facts">
+        <div><dt>지목</dt><dd>${esc(p.landUse)}</dd></div>
+        <div><dt>면적 <small>경계로 계산</small></dt><dd class="mono">${fmt(p.area)}㎡</dd></div>
+        <div><dt>개별공시지가</dt><dd>${p.jiga ? `<span class="mono">${fmt(p.jiga)}</span>원/㎡ <small>${esc(p.jigaDate)} 기준</small>` : "–"}</dd></div>
+        <div><dt>PNU</dt><dd class="mono">${p.pnu}</dd></div>
+      </dl>`
+    : `<p class="d-empty">${p.status === "loading" ? "필지 조회 중…" : "이 위치에서 필지를 찾지 못했습니다 (도로·하천·바다 등)"}</p>`;
+  const action = p.status !== "ok" ? ""
+    : p.saved ? '<button type="button" class="btn btn-ghost" id="remove-field">내 필지에서 삭제</button>'
+    : '<button type="button" class="btn" id="add-field">내 필지에 추가</button>';
+  $("#detail").innerHTML = `
+    <div class="d-head">
+      <div class="d-title"><h2>${esc(p.label)}</h2><span class="tag">${p.saved ? "내 필지" : "선택 위치"}</span></div>
+      <div class="d-addr">${esc(p.address || "주소 확인 중…")}</div>
+      ${body}
+      <div class="d-actions">${action}${p.status === "ok" ? src("parcel") : ""}</div>
     </div>
-    <div class="d-scores">
-      <div class="d-sec-head"><h3>작업 판단</h3>${src("engine")}</div>
-      <ul class="scores">${INDEXES.map((i) => scoreRow(i, e[i.key])).join("")}</ul>
-    </div>
-    <div class="d-recs">
-      <div class="d-sec-head"><h3>추천</h3></div>
-      <ul class="recs">${e.recs.map((x) => `<li data-s="${x.tone}"><i aria-hidden="true">${STATUS_ICON[x.tone]}</i><span>${esc(x.text)}</span></li>`).join("")}</ul>
-    </div>`;
-}
-
-// ---------------------------------------------------------------------------
-// 하단 탭 (내용은 ui.js의 TABS)
-// ---------------------------------------------------------------------------
-$("#tabs").addEventListener("click", (ev) => {
-  const b = ev.target.closest("button");
-  if (!b) return;
-  state.tab = b.dataset.key;
-  renderTabs();
-});
-
-function renderTabs() {
-  $("#tabs").innerHTML = TABS.map(
-    (tb) => `<button type="button" role="tab" id="tab-${tb.key}" data-key="${tb.key}" aria-selected="${tb.key === state.tab}">${tb.label}</button>`
-  ).join("");
-  const f = currentField();
-  const ctx = { field: f, rows: hourlyOf(f), t: state.t, e: evalAt(f, state.t), evalAt, setHour };
-  const tab = TABS.find((x) => x.key === state.tab);
-  const body = $("#tab-body");
-  body.innerHTML = tab.render(ctx);
-  tab.bind?.(body, ctx);
+    ${pendingBlock()}`;
 }
 
 function renderAll() {
-  hourSel.value = state.t;
   renderList();
   renderMap();
   renderDetail();
-  renderTabs();
 }
 
 fitAll();
 renderAll();
-
-// VWorld 연속지적도 필지로 경계·PNU·주소·지목·면적을 채우고 다시 그림 (못 찾으면 핀만)
-async function applyParcel(f, lookup) {
-  const p = await lookup;
-  if (!FIELDS.includes(f)) return;
-  f.parcelStatus = p ? "ok" : "none";
-  if (p) {
-    Object.assign(f, { pnu: p.pnu, address: p.address, landUse: p.landUse, area: p.area, rings: p.rings });
-    removeFieldLayers(f.id);
-    addFieldLayers(f);
-  }
-  renderAll();
-}
-FIELDS.forEach((f) => applyParcel(f, vworldParcelByPnu(f.pnu)));
+state.saved.forEach((p) => applyParcel(p, vworldParcelByPnu(p.pnu)));

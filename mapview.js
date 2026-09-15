@@ -1,20 +1,21 @@
 // ---------------------------------------------------------------------------
 // 지도 어댑터 — 기본은 Leaflet + VWorld(위성·일반·지적도). ?map=naver면 네이버 지도.
 // app.js는 이 인터페이스만 사용: addField / updateField / removeField / fit / flyTo / onClick / setBase / toggleCadastral
-// 필지 경계는 VWorld 연속지적도에서 받아 f.rings에 채운 것만 그린다 (아직 없으면 핀만)
+// 필지 경계는 VWorld 연속지적도에서 받아 p.rings에 채운 것만 그린다 (아직 없으면 핀만)
 // ---------------------------------------------------------------------------
-const STATUS_HEX = { good: "#0ca30c", warning: "#fab219", critical: "#d03b3b", neutral: "#8a948d", na: "#b7bfb8" };
+const PARCEL_HEX = "#72b9bf";
+const HOME = { center: [36.13, 129.25], zoom: 11 }; // 포항시 북구 일대
 
-function pinHtml(f, status, score, selected) {
-  return `<div class="pin-wrap"><div class="pin${selected ? " is-selected" : ""}" data-s="${status}"><b>${score ?? "–"}</b><span>${esc(f.name)}</span></div></div>`;
+function pinHtml(p, selected) {
+  return `<div class="pin-wrap"><div class="pin${selected ? " is-selected" : ""}">${esc(p.label)}</div></div>`;
 }
 
 // ---------------------------------------------------------------------------
 function NaverView(el) {
   const nm = naver.maps;
   const map = new nm.Map(el, {
-    center: new nm.LatLng(36.17, 129.2),
-    zoom: 11,
+    center: new nm.LatLng(...HOME.center),
+    zoom: HOME.zoom,
     mapTypeId: nm.MapTypeId.HYBRID,
     zoomControl: true,
     zoomControlOptions: { position: nm.Position.BOTTOM_RIGHT, style: nm.ZoomControlStyle.SMALL },
@@ -33,21 +34,21 @@ function NaverView(el) {
     bases: ["sat", "base", "cadastral"],
     setBase(k) { map.setMapTypeId(k === "base" ? nm.MapTypeId.NORMAL : nm.MapTypeId.HYBRID); },
     toggleCadastral(on) { cadastral.setMap(on ? map : null); },
-    addField(f, onSelect) {
-      const polys = (f.rings ?? []).map((ring) => new nm.Polygon({
+    addField(p, onSelect) {
+      const polys = (p.rings ?? []).map((ring) => new nm.Polygon({
         map, paths: [ring.map(ll)], clickable: true, zIndex: 10,
-        strokeColor: "#ffffff", strokeWeight: 2, fillColor: STATUS_HEX.na, fillOpacity: 0.42,
+        strokeColor: "#ffffff", strokeWeight: 2, fillColor: PARCEL_HEX, fillOpacity: 0.28,
       }));
-      const pin = new nm.Marker({ map, position: ll([f.lat, f.lon]), zIndex: 100, icon: { content: "<div></div>", anchor: new nm.Point(0, 0) } });
-      polys.forEach((p) => nm.Event.addListener(p, "click", () => { swallow(); onSelect(f.id, false); }));
-      nm.Event.addListener(pin, "click", () => { swallow(); onSelect(f.id, true); });
-      layers[f.id] = { polys, pin };
+      const pin = new nm.Marker({ map, position: ll([p.lat, p.lon]), zIndex: 100, icon: { content: "<div></div>", anchor: new nm.Point(0, 0) } });
+      polys.forEach((poly) => nm.Event.addListener(poly, "click", () => { swallow(); onSelect(p.id, false); }));
+      nm.Event.addListener(pin, "click", () => { swallow(); onSelect(p.id, true); });
+      layers[p.id] = { polys, pin };
     },
-    updateField(f, status, score, selected) {
-      const x = layers[f.id];
+    updateField(p, selected) {
+      const x = layers[p.id];
       if (!x) return;
-      x.polys.forEach((p) => p.setOptions({ fillColor: STATUS_HEX[status], fillOpacity: selected ? 0.55 : 0.42, strokeWeight: selected ? 3.5 : 2, zIndex: selected ? 20 : 10 }));
-      x.pin.setIcon({ content: pinHtml(f, status, score, selected), anchor: new nm.Point(0, 0) });
+      x.polys.forEach((poly) => poly.setOptions({ fillOpacity: selected ? 0.45 : 0.28, strokeWeight: selected ? 3.5 : 2, zIndex: selected ? 20 : 10 }));
+      x.pin.setIcon({ content: pinHtml(p, selected), anchor: new nm.Point(0, 0) });
       x.pin.setZIndex(selected ? 1000 : 100);
     },
     removeField(id) {
@@ -57,8 +58,9 @@ function NaverView(el) {
       delete layers[id];
     },
     fit(points) {
+      if (!points.length) { map.setCenter(ll(HOME.center)); map.setZoom(HOME.zoom); return; }
       const b = new nm.LatLngBounds(ll(points[0]), ll(points[0]));
-      points.forEach((p) => b.extend(ll(p)));
+      points.forEach((pt) => b.extend(ll(pt)));
       map.fitBounds(b, { top: 70, right: 70, bottom: 70, left: 70 });
     },
     flyTo(lat, lon, zoom) {
@@ -125,33 +127,33 @@ function LeafletView(el) {
       if (on) cadastral.addTo(map);
       else cadastral.remove();
     },
-    addField(f, onSelect) {
+    addField(p, onSelect) {
       const group = L.layerGroup().addTo(map);
-      const polys = (f.rings ?? []).map((ring) => L.polygon(ring, { className: "field-parcel", bubblingMouseEvents: false }).addTo(group));
-      polys.forEach((p) => p.on("click", () => onSelect(f.id, false)));
-      const pin = L.marker([f.lat, f.lon], { keyboard: false }).addTo(group);
-      pin.on("click", () => onSelect(f.id, true));
-      layers[f.id] = { group, polys, pin };
+      const polys = (p.rings ?? []).map((ring) => L.polygon(ring, { className: "field-parcel", bubblingMouseEvents: false }).addTo(group));
+      polys.forEach((poly) => poly.on("click", () => onSelect(p.id, false)));
+      const pin = L.marker([p.lat, p.lon], { keyboard: false }).addTo(group);
+      pin.on("click", () => onSelect(p.id, true));
+      layers[p.id] = { group, polys, pin };
     },
-    updateField(f, status, score, selected) {
-      const x = layers[f.id];
+    updateField(p, selected) {
+      const x = layers[p.id];
       if (!x) return;
-      x.polys.forEach((p) => {
-        const path = p.getElement();
-        if (path) {
-          path.setAttribute("class", `leaflet-interactive field-parcel${selected ? " is-selected" : ""}`);
-          path.setAttribute("data-s", status);
-        }
-        if (selected) p.bringToFront();
+      x.polys.forEach((poly) => {
+        poly.getElement()?.setAttribute("class", `leaflet-interactive field-parcel${selected ? " is-selected" : ""}`);
+        if (selected) poly.bringToFront();
       });
-      x.pin.setIcon(L.divIcon({ className: "pin-host", iconSize: null, html: pinHtml(f, status, score, selected) }));
+      x.pin.setIcon(L.divIcon({ className: "pin-host", iconSize: null, html: pinHtml(p, selected) }));
       x.pin.setZIndexOffset(selected ? 1000 : 0);
     },
     removeField(id) {
       layers[id]?.group.remove();
       delete layers[id];
     },
-    fit(points) { map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: !reduceMotion }); },
+    fit(points) {
+      if (!points.length) return map.setView(HOME.center, HOME.zoom);
+      if (points.length === 1) return map.setView(points[0], 16);
+      map.fitBounds(L.latLngBounds(points).pad(0.2), { animate: !reduceMotion });
+    },
     flyTo(lat, lon, zoom) {
       if (reduceMotion) map.setView([lat, lon], zoom);
       else map.flyTo([lat, lon], zoom, { duration: 0.8 });

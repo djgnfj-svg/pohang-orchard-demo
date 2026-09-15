@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // VWorld(국토교통부 공간정보 오픈플랫폼) — 주소·장소 검색, 좌표→주소, 연속지적도 필지 조회
-// 브라우저 fetch는 CORS로 막혀 있어 JSONP로 호출. 키는 data.js의 VWORLD_KEY.
+// 브라우저 fetch는 CORS로 막혀 있어 JSONP로 호출. 키는 config.js의 VWORLD_KEY.
 // 약관: 검색·지오코딩 결과는 화면 표시에만 쓰고 저장하지 않는다.
 // ---------------------------------------------------------------------------
 const VW_API = "https://api.vworld.kr/req/";
@@ -81,6 +81,8 @@ function toParcel(feature) {
   const mark = p.jibun.trim().slice(-1);
   return {
     pnu: p.pnu, jibun: p.jibun, address: p.addr, landUse: JIMOK[mark] ?? mark,
+    jiga: p.jiga ? +p.jiga : null, // 개별공시지가 (원/㎡)
+    jigaDate: p.gosi_year ? `${p.gosi_year}.${p.gosi_month}` : "",
     rings, area: Math.round(rings.reduce((a, r) => a + ringArea(r), 0)),
   };
 }

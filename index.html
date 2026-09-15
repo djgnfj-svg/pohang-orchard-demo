@@ -6,8 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="vendor/leaflet.css?v=20260915g">
-<link rel="stylesheet" href="style.css?v=20260915g">
+<link rel="stylesheet" href="vendor/leaflet.css?v=20260915h">
+<link rel="stylesheet" href="style.css?v=20260915h">
 
 <div class="shell">
   <header class="topbar">
@@ -15,33 +15,23 @@
       <span class="brand-mark" aria-hidden="true"></span>
       <div>
         <div class="brand-name">포항 과원 작업판단</div>
-        <div class="brand-sub">필지 단위 농작업 의사결정 · 데모</div>
+        <div class="brand-sub">필지 단위 농작업 의사결정 · 실제 데이터만 표시</div>
       </div>
     </div>
     <form class="search" id="search-form" role="search" autocomplete="off">
-      <label for="search-input" class="sr-only">주소·지번·농장명 검색</label>
-      <input id="search-input" type="search" placeholder="주소·지번·농장명 검색 (예: 포항 죽장면 두마리)">
+      <label for="search-input" class="sr-only">주소·지번·장소 검색</label>
+      <input id="search-input" type="search" placeholder="주소·지번·장소 검색 (예: 포항 죽장면 두마리 1294)">
       <button type="submit" id="search-btn">검색</button>
       <ul class="search-results" id="search-results" hidden></ul>
     </form>
-    <div class="topbar-meta">
-      <span class="chip chip-mock" title="모든 수치는 화면 확인용 예시 데이터입니다">목업 데이터</span>
-      <span class="chip" id="alert-chip"></span>
-      <label class="time-select" for="hour-select">
-        <span>기준 시각</span>
-        <select id="hour-select"></select>
-      </label>
-    </div>
   </header>
 
-  <aside class="fields" aria-label="농지 목록">
+  <aside class="fields" aria-label="내 필지">
     <div class="pane-head">
-      <h2>내 농지</h2>
+      <h2>내 필지</h2>
       <span class="count" id="field-count"></span>
     </div>
-    <div class="index-switch" role="radiogroup" aria-label="지도 색상 기준" id="index-switch"></div>
     <ul class="field-list" id="field-list"></ul>
-    <div class="legend" id="status-legend"></div>
   </aside>
 
   <main class="map-wrap">
@@ -50,11 +40,6 @@
   </main>
 
   <section class="detail" aria-label="선택 필지" id="detail"></section>
-
-  <section class="bottom" aria-label="상세 정보">
-    <div class="tabs" role="tablist" id="tabs"></div>
-    <div class="tab-body" id="tab-body"></div>
-  </section>
 </div>
 
 <!-- 지도: 기본은 Leaflet + VWorld(위성·일반·지적도). ?map=naver면 네이버 지도 —
@@ -67,10 +52,8 @@
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="data.js?v=20260915g"></script>
-<script src="vworld.js?v=20260915g"></script>
-<script src="engine.js?v=20260915g"></script>
-<script src="ui.js?v=20260915g"></script>
-<script src="mapview.js?v=20260915g"></script>
-<script src="app.js?v=20260915g"></script>
-<script src="search.js?v=20260915g"></script>
+<script src="config.js?v=20260915h"></script>
+<script src="vworld.js?v=20260915h"></script>
+<script src="mapview.js?v=20260915h"></script>
+<script src="app.js?v=20260915h"></script>
+<script src="search.js?v=20260915h"></script>
