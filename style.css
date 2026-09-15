@@ -256,7 +256,8 @@ small { font-size: 11px; color: var(--muted); font-weight: 400; }
    ------------------------------------------------------------------------ */
 .map-wrap { position: relative; min-height: 0; }
 #map {
-  position: absolute; inset: 0; border-radius: var(--r);
+  /* 네이버 지도가 인라인으로 position: relative를 넣어 높이가 0이 되므로 !important로 고정 */
+  position: absolute !important; inset: 0; border-radius: var(--r);
   border: 1px solid var(--line); background: var(--map-bg); font-family: var(--font);
 }
 #map.no-tiles {
