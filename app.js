@@ -51,6 +51,7 @@ let mapView = createMapView($("#map"));
 const mapClickHandlers = [];
 let activeBase = "sat";
 let cadastralOn = true; // 지적도 기본 표시 (확대했을 때만 보임)
+const robotShow = { lidar: true, route: true }; // 로봇 라이다 영상 · 주행 경로 (robot.js)
 
 function showMapNote(text) {
   const note = $("#map-note");
@@ -67,6 +68,7 @@ function renderTools() {
     btn("map-sat", "위성", activeBase === "sat", 'data-base="sat"'),
     btn("map-base", "일반", activeBase === "base", 'data-base="base"'),
     mapView.bases.includes("cadastral") ? btn("map-cad", "지적도", cadastralOn) : "",
+    ROBOT_MAPS.length ? btn("map-lidar", "라이다", robotShow.lidar, 'data-robot="lidar"') + btn("map-route", "경로", robotShow.route, 'data-robot="route"') : "",
     '<button type="button" id="map-all">전체 보기</button>',
   ].join("");
 }
@@ -77,6 +79,11 @@ tools.addEventListener("click", (ev) => {
   if (b.id === "map-cad") {
     cadastralOn = !cadastralOn;
     mapView.toggleCadastral(cadastralOn);
+    return renderTools();
+  }
+  if (b.dataset.robot) {
+    robotShow[b.dataset.robot] = !robotShow[b.dataset.robot];
+    mountRobotMaps();
     return renderTools();
   }
   activeBase = b.dataset.base;
@@ -92,7 +99,11 @@ function drawParcel(p) {
   mapView.removeField(p.id);
   mapView.addField(p, select);
 }
+function mountRobotMaps() {
+  ROBOT_MAPS.forEach((rm) => mapView.setRobotMap(rm, robotShow));
+}
 function mountParcels() {
+  mountRobotMaps();
   allParcels().forEach(drawParcel);
   if (cadastralOn) mapView.toggleCadastral(true);
   renderTools();
@@ -129,8 +140,8 @@ if (mapView.kind === "naver") {
   }, 5000);
 }
 
-function fitAll() {
-  mapView.fit(listed().map((p) => [p.lat, p.lon]));
+function fitAll() { // 로봇 맵이 있으면 라이다 범위까지 보이게
+  mapView.fit([...listed().map((p) => [p.lat, p.lon]), ...ROBOT_MAPS.flatMap((rm) => rm.lidar.bounds)]);
 }
 
 function renderMap() {
@@ -233,7 +244,9 @@ function renderList() {
 // 필지 상세
 // ---------------------------------------------------------------------------
 $("#detail").addEventListener("click", (ev) => {
-  if (ev.target.closest("#add-field")) saveSelection();
+  const robot3d = ev.target.closest("[data-robot-3d]");
+  if (robot3d) openRobot3D(robot3d.dataset.robot3d);
+  else if (ev.target.closest("#add-field")) saveSelection();
   else if (ev.target.closest("#remove-field")) removeSaved(state.id);
 });
 
@@ -267,6 +280,7 @@ function renderDetail() {
       ${body}
       <div class="d-actions">${action}${p.status === "ok" ? src("parcel") : ""}</div>
     </div>
+    ${renderRobotMap(p)}
     ${renderPublicData(p)}`;
 }
 

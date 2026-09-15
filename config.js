@@ -11,10 +11,15 @@ const PROXY_URL = "https://pohang-orchard-proxy.djgnfj89239272.workers.dev/";
 // 공유 필지 — 데모를 여는 모든 사람에게 보이는 필지 (삭제 불가, 처음 열면 첫 필지 선택).
 // PNU·주소·중심 좌표만 두고 경계·지목·면적은 열 때마다 VWorld에서 조회한다.
 const SHARED_PARCELS = [
-  { pnu: "4711331028101190000", address: "경상북도 포항시 북구 신광면 안덕리 119", lat: 36.15002, lon: 129.26915 },
+  { pnu: "5176033025100570000", address: "강원특별자치도 평창군 대화면 하안미리 57", lat: 37.45997, lon: 128.49597 },
 ];
 
+// 로봇 작업 맵(라이다·웨이포인트) — robot/<이름>.js가 여기에 추가한다 (tools/build_robotmap.py로 생성)
+const ROBOT_MAPS = [];
+
 const SRC = {
+  lidar: "로봇 라이다 맵",
+  route: "로봇 웨이포인트",
   parcel: "VWorld 연속지적도",
   shared: "공유 필지",
   vworld: "VWorld 검색",
