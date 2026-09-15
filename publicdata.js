@@ -39,8 +39,19 @@ function kmaGrid(lat, lon) {
 }
 
 // Worker 호출 → item 배열. 자료 없음(NODATA)은 빈 배열, 그 밖의 오류는 예외
-async function pdCall(path, params, timeoutMs = 15000) {
-  const r = await fetch(PROXY_URL + path + "?" + new URLSearchParams(params), { signal: AbortSignal.timeout(timeoutMs) });
+async function pdCall(path, params, timeoutMs = 30000) {
+  const url = PROXY_URL + path + "?" + new URLSearchParams(params);
+  // 중계 서버가 연결 실패(5xx)나 네트워크 오류를 내면 1.5초 뒤 한 번 더
+  let r;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      r = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+      if (r.status < 500 || attempt === 2) break;
+    } catch (e) {
+      if (attempt === 2) throw new Error(e.name === "TimeoutError" ? "응답 시간 초과" : "네트워크 오류");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+  }
   const text = await r.text();
   if (/^\s*</.test(text)) {
     const msg = text.match(/<(?:resultMsg|returnAuthMsg)>([^<]*)</)?.[1] || `응답 오류 (${r.status})`;
