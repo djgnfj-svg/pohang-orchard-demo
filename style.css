@@ -281,7 +281,6 @@ small { font-size: 11px; color: var(--muted); font-weight: 400; }
 }
 .map-tools button[aria-pressed="true"] { background: var(--accent-soft); color: var(--ink); font-weight: 600; }
 
-.nb-parcel { stroke: var(--parcel-line); fill: var(--parcel-fill); stroke-width: 1; }
 .field-parcel { stroke: #ffffff; stroke-width: 2; fill: var(--s); fill-opacity: 0.42; }
 .field-parcel.is-selected { stroke-width: 3.5; fill-opacity: 0.55; }
 

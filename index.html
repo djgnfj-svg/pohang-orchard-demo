@@ -6,8 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="vendor/leaflet.css?v=20260915e">
-<link rel="stylesheet" href="style.css?v=20260915e">
+<link rel="stylesheet" href="vendor/leaflet.css?v=20260915g">
+<link rel="stylesheet" href="style.css?v=20260915g">
 
 <div class="shell">
   <header class="topbar">
@@ -46,7 +46,7 @@
 
   <main class="map-wrap">
     <div id="map" aria-label="필지 지도"></div>
-    <div class="map-note" id="map-note" hidden>배경지도 자리 · 실서비스는 VWorld 위성/일반지도</div>
+    <div class="map-note" id="map-note" hidden></div>
   </main>
 
   <section class="detail" aria-label="선택 필지" id="detail"></section>
@@ -57,19 +57,20 @@
   </section>
 </div>
 
-<!-- 네이버 지도 Client ID는 도메인 제한 공개키 — 콘솔 Web 서비스 URL에 등록된 주소(현재 djgnfj-svg.github.io)에서만 인증됨.
-     등록 도메인에서는 기본 사용, 그 외에는 ?map=naver로 강제, ?map=leaflet이면 대체 지도 -->
+<!-- 지도: 기본은 Leaflet + VWorld(위성·일반·지적도). ?map=naver면 네이버 지도 —
+     네이버 Client ID는 콘솔 Web 서비스 URL에 등록된 주소(현재 djgnfj-svg.github.io)에서만 인증됨 -->
 <script>
   window.MAP_PARAM = new URLSearchParams(location.search).get("map");
-  window.USE_NAVER_MAP = MAP_PARAM === "naver" || (location.hostname === "djgnfj-svg.github.io" && MAP_PARAM !== "leaflet");
+  window.USE_NAVER_MAP = MAP_PARAM === "naver";
   if (USE_NAVER_MAP) {
     document.write('<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=v33u514rqa&submodules=geocoder"><\/script>');
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="data.js?v=20260915e"></script>
-<script src="engine.js?v=20260915e"></script>
-<script src="ui.js?v=20260915e"></script>
-<script src="mapview.js?v=20260915e"></script>
-<script src="app.js?v=20260915e"></script>
-<script src="search.js?v=20260915e"></script>
+<script src="data.js?v=20260915g"></script>
+<script src="vworld.js?v=20260915g"></script>
+<script src="engine.js?v=20260915g"></script>
+<script src="ui.js?v=20260915g"></script>
+<script src="mapview.js?v=20260915g"></script>
+<script src="app.js?v=20260915g"></script>
+<script src="search.js?v=20260915g"></script>

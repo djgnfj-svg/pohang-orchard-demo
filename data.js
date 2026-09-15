@@ -1,6 +1,11 @@
 // ---------------------------------------------------------------------------
 // 목업 데이터 — 화면 확인용 예시 값. 실제 연동 시 각 SRC에 적힌 API 응답으로 교체.
+// 응답 필드가 확인된 항목만 둔다 (docs/API_DATA.md). 출처를 모르는 값은 넣지 않음.
 // ---------------------------------------------------------------------------
+// VWorld 인증키 — 지도 타일·지적도·검색을 브라우저에서 직접 호출하므로 페이지에 노출되는 키.
+// 공공데이터포털 키는 사용처 제한이 없으니 여기에 두지 말 것 (서버·중계로 호출).
+const VWORLD_KEY = "9D089910-1218-40D6-A39F-7CBD242DF2D1";
+
 const SRC = {
   ncst: "기상청 초단기실황",
   fcst: "기상청 단기예보",
@@ -9,15 +14,13 @@ const SRC = {
   fmapWeather: "팜맵 농업기상",
   soil: "팜맵 토양검정",
   pest: "농진청 병해충 예찰정보",
-  schedule: "농사로 농작업일정",
   growth: "사과생육품질정보",
   parcel: "VWorld 연속지적도",
-  reservoir: "농어촌공사 저수율",
-  fire: "산림청 산불위험예보",
   internal: "로봇 관제 시스템(내부)",
   engine: "자체 판단엔진",
+  naver: "네이버 지오코딩",
   osm: "OSM Nominatim 주소검색",
-  vworld: "VWorld 지오코딩",
+  vworld: "VWorld 검색",
   click: "지도에서 선택",
 };
 
@@ -32,51 +35,49 @@ const CROP_PRESETS = {
 const BASE_DATE = "2026-09-15"; // 72시간 예보 시작일 (00시)
 const DEFAULT_HOUR = 9;          // 처음 열었을 때 기준 시각
 
+// tempOffset·windOffset·rainFactor: 지역 예보 시나리오를 필지마다 조금씩 다르게 만드는 목업 보정값 (화면에 표시 안 함)
+// dryDays: 무강우 일수 (과거 강수 관측으로 계산할 값)
+// soil: 팜맵 토양검정에서 필드가 확인된 항목만 — pH(acidity), 유기물(ormtCont), 유효인산(vdphdy), EC(ecd)
 const FIELDS = [
   {
     id: "F-101", name: "밤*골농장", crop: "사과", cultivar: "홍로", maturity: "중생종",
     stage: "수확기", harvestable: true,
-    address: "포항시 북구 죽장면 두마리 1294", pnu: "4711338021112940000",
-    area: 3420, landUse: "과수원", lat: 36.1687, lon: 129.0209,
-    tempOffset: -1.4, windOffset: -0.3, slope: 18, rainFactor: 1.1,
-    lastSpray: "2026-09-05", lastRainMm: 12, dryDays: 5,
-    soil: { pH: 5.6, om: 27, p: 240, k: 0.61, ca: 4.2, mg: 1.6, ec: 0.8 },
+    address: "포항시 북구 죽장면 두마리 904-1", pnu: "4711335037109040001",
+    area: 5510, landUse: "과수원", lat: 36.16482, lon: 129.02589,
+    tempOffset: -1.4, windOffset: -0.3, rainFactor: 1.1, dryDays: 5,
+    soil: { pH: 5.6, om: 27, p: 240, ec: 0.8 },
   },
   {
     id: "F-102", name: "솔밭농장", crop: "사과", cultivar: "후지", maturity: "만생종",
     stage: "착색기", harvestable: false,
-    address: "포항시 북구 기북면 성법리 200", pnu: "4711336025102000000",
-    area: 5180, landUse: "과수원", lat: 36.1768, lon: 129.1975,
-    tempOffset: -0.9, windOffset: 0.2, slope: 12, rainFactor: 1.0,
-    lastSpray: "2026-09-08", lastRainMm: 12, dryDays: 5,
-    soil: { pH: 6.3, om: 19, p: 265, k: 0.72, ca: 5.4, mg: 1.8, ec: 0.6 },
+    address: "포항시 북구 기북면 성법리 891", pnu: "4711336027108910000",
+    area: 3594, landUse: "과수원", lat: 36.17326, lon: 129.19256,
+    tempOffset: -0.9, windOffset: 0.2, rainFactor: 1.0, dryDays: 5,
+    soil: { pH: 6.3, om: 19, p: 265, ec: 0.6 },
   },
   {
     id: "F-103", name: "바다뜰농장", crop: "배", cultivar: "신고", maturity: "만생종",
     stage: "성숙기", harvestable: false,
-    address: "포항시 북구 흥해읍 매산리 55", pnu: "4711325332100550000",
-    area: 2760, landUse: "과수원", lat: 36.1129, lon: 129.3105,
-    tempOffset: 0.6, windOffset: 2.6, slope: 4, rainFactor: 0.5,
-    lastSpray: "2026-09-11", lastRainMm: 9, dryDays: 8,
-    soil: { pH: 6.1, om: 31, p: 420, k: 0.66, ca: 5.6, mg: 1.7, ec: 1.1 },
+    address: "포항시 북구 흥해읍 북송리 38-1", pnu: "4711325022100380001",
+    area: 5644, landUse: "과수원", lat: 36.10999, lon: 129.32387,
+    tempOffset: 0.6, windOffset: 2.6, rainFactor: 0.5, dryDays: 8,
+    soil: { pH: 6.1, om: 31, p: 420, ec: 1.1 },
   },
   {
     id: "F-104", name: "청하사과원", crop: "사과", cultivar: "홍로", maturity: "중생종",
     stage: "수확기", harvestable: true,
-    address: "포항시 북구 청하면 명안리 318", pnu: "4711331031103180000",
-    area: 4050, landUse: "과수원", lat: 36.1909, lon: 129.2821,
-    tempOffset: 0.2, windOffset: 1.8, slope: 7, rainFactor: 0.8,
-    lastSpray: "2026-09-02", lastRainMm: 10, dryDays: 5,
-    soil: { pH: 6.2, om: 29, p: 230, k: 0.42, ca: 5.1, mg: 1.5, ec: 0.9 },
+    address: "포항시 북구 청하면 유계리 526-2", pnu: "4711332037105260002",
+    area: 8227, landUse: "과수원", lat: 36.19512, lon: 129.30044,
+    tempOffset: 0.2, windOffset: 1.8, rainFactor: 0.8, dryDays: 5,
+    soil: { pH: 6.2, om: 29, p: 230, ec: 0.9 },
   },
   {
     id: "F-105", name: "신광농원", crop: "사과", cultivar: "시나노골드", maturity: "중만생종",
     stage: "과실비대후기", harvestable: false,
-    address: "포항시 북구 신광면 반곡리 77", pnu: "4711334027100770000",
-    area: 2980, landUse: "과수원", lat: 36.1652, lon: 129.2744,
-    tempOffset: -0.2, windOffset: 0.0, slope: 9, rainFactor: 0.9,
-    lastSpray: "2026-09-09", lastRainMm: 11, dryDays: 5,
-    soil: { pH: 6.4, om: 33, p: 280, k: 0.58, ca: 5.9, mg: 1.9, ec: 2.4 },
+    address: "포항시 북구 신광면 안덕리 119", pnu: "4711331028101190000",
+    area: 5635, landUse: "과수원", lat: 36.15002, lon: 129.26915,
+    tempOffset: -0.2, windOffset: 0.0, rainFactor: 0.9, dryDays: 5,
+    soil: { pH: 6.4, om: 33, p: 280, ec: 2.4 },
   },
 ];
 
@@ -85,9 +86,6 @@ const SOIL_RANGE = {
   pH: { label: "산도(pH)", unit: "", min: 6.0, max: 6.5, scaleMax: 8 },
   om: { label: "유기물", unit: "g/kg", min: 25, max: 35, scaleMax: 50 },
   p: { label: "유효인산", unit: "mg/kg", min: 200, max: 300, scaleMax: 500 },
-  k: { label: "칼륨", unit: "cmol⁺/kg", min: 0.5, max: 0.8, scaleMax: 1.2 },
-  ca: { label: "칼슘", unit: "cmol⁺/kg", min: 5.0, max: 6.0, scaleMax: 9 },
-  mg: { label: "마그네슘", unit: "cmol⁺/kg", min: 1.5, max: 2.0, scaleMax: 3 },
   ec: { label: "전기전도도(EC)", unit: "dS/m", min: 0, max: 2.0, scaleMax: 3 },
 };
 
@@ -163,13 +161,9 @@ const OUTLOOK = [
 const ALERTS = [
   { level: "예비특보", kind: "강풍", area: "경북북동산지 · 포항", when: "9/16(수) 오후", status: "warning",
     text: "순간풍속 20m/s 이상 예상. 16일 오후 방제·고소작업 자제.", src: "warn" },
-  { level: "정보", kind: "산불위험", area: "포항시", when: "9/15(화)", status: "good",
-    text: "산불위험지수 낮음 (32).", src: "fire" },
 ];
 
-const RESERVOIR = { name: "죽장저수지(예시)", rate: 68, normalRate: 74, src: "reservoir" };
-
-// 병해충 예찰 (지역 발생 정보) — 위험도 점수는 판단엔진이 기상과 결합해 산출
+// 병해충 예찰 (지역 발생 정보) — 점수화하지 않고 예찰 수준과 필지 기상 조건만 보여줌
 const PEST_BULLETIN = [
   { crop: "사과", name: "탄저병", level: "주의", note: "경북 사과 주산지 발생 증가. 강우 후 고온다습 시 확산.", sensitive: "rain" },
   { crop: "사과", name: "겹무늬썩음병", level: "관심", note: "수확기 과실 발생. 수확 전 약제 안전사용기준 확인.", sensitive: "humid" },
@@ -177,14 +171,6 @@ const PEST_BULLETIN = [
   { crop: "배", name: "검은별무늬병", level: "관심", note: "가을 강우 시 잎·과실 감염. 낙엽 처리.", sensitive: "rain" },
   { crop: "배", name: "꼬마배나무이", level: "관심", note: "밀도 낮음.", sensitive: "warm" },
 ];
-
-// 농작업일정 (작목·시기별 권장 작업)
-const SCHEDULE = {
-  "사과:수확기": ["적숙기 수확 (착색·경도 확인)", "수확 전 약제 안전사용기준 확인", "수확 후 저온저장 준비"],
-  "사과:착색기": ["잎따기·과실 돌리기", "반사필름 설치", "탄저병·겹무늬썩음병 방제"],
-  "사과:과실비대후기": ["토양 수분 관리 (건조 시 관수)", "도장지 정리", "병해충 예찰"],
-  "배:성숙기": ["수확 시기 판정 (당도·경도)", "봉지 상태 점검", "태풍 대비 지주·배수로 정비"],
-};
 
 const ROBOTS = [
   { id: "SP-03", type: "방제로봇", model: "과수 방제로봇", battery: 86, state: "대기", at: "F-101" },

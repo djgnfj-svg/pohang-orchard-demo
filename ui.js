@@ -134,7 +134,6 @@ const TAB_OUTLOOK = {
 const TAB_ALERTS = {
   key: "alerts", label: "재해·특보",
   render: (ctx) => {
-    const r = RESERVOIR;
     const peak = ctx.rows.reduce((a, x) => (x.wind > a.wind ? x : a));
     return `${tabHead("재해 · 기상특보", "포항 및 필지 인근 기준")}
       <div class="grid-3">
@@ -142,9 +141,6 @@ const TAB_ALERTS = {
           <p>${esc(a.area)} · ${esc(a.when)}</p><p>${esc(a.text)}</p><p>${src(a.src)}</p></div>`).join("")}
         <div class="box"><h4><span>최대 풍속 (72시간)</span>${pill({ key: peak.wind > 6 ? "critical" : peak.wind > 4 ? "warning" : "good", label: `${peak.wind}m/s` })}</h4>
           <p>${hourLabel(peak.h)} · ${esc(ctx.field.name)}</p><p>${src("fcst")}</p></div>
-        <div class="box"><h4><span>${esc(r.name)} 저수율</span><span class="mono">${r.rate}%</span></h4>
-          <div class="robot-meter"><span style="width:${r.rate}%"></span></div>
-          <p style="margin-top:6px">평년 ${r.normalRate}% 대비 ${r.rate - r.normalRate}%p</p><p>${src(r.src)}</p></div>
       </div>`;
   },
 };
@@ -152,13 +148,12 @@ const TAB_ALERTS = {
 // ---------------------------------------------------------------------------
 const TAB_PESTS = {
   key: "pests", label: "병해충",
-  render: ({ field, e }) => `${tabHead(`${field.crop} 병해충 위험`, "지역 예찰 수준 + 필지 기상(전후 72시간)으로 위험도 산출", "pest", "engine")}
+  render: ({ field, e }) => `${tabHead(`${field.crop} 병해충`, "지역 예찰 수준 + 필지 기상에서 발병 조건이 이어진 시간 (지난 24시간 ~ 앞으로 48시간)", "pest", "fcst")}
     <div class="scroll-x"><table class="tbl">
-      <thead><tr><th>병해충</th><th>지역 예찰</th><th>필지 위험도</th><th>근거</th><th>메모</th></tr></thead>
+      <thead><tr><th>병해충</th><th>지역 예찰</th><th>필지 기상 조건</th><th>메모</th></tr></thead>
       <tbody>${e.pests.map((p) => `<tr>
         <td><b>${esc(p.name)}</b></td>
-        <td>${esc(p.level)}</td>
-        <td><span class="mono">${p.score}</span> ${pill({ key: p.status, label: p.status === "critical" ? "높음" : p.status === "warning" ? "보통" : "낮음" })}</td>
+        <td>${pill({ key: p.level === "주의" ? "warning" : "neutral", label: p.level })}</td>
         <td>${esc(p.why)}</td>
         <td style="white-space:normal;min-width:260px">${esc(p.note)}</td>
       </tr>`).join("")}</tbody>
@@ -192,19 +187,26 @@ const TAB_SOIL = {
 
 // ---------------------------------------------------------------------------
 const TAB_SCHEDULE = {
-  key: "schedule", label: "농작업",
-  render: ({ field, e, t }) => {
-    const items = SCHEDULE[`${field.crop}:${field.stage}`] ?? [];
-    const win = (w, label) => w
-      ? `<li data-s="good"><i aria-hidden="true">✓</i><span>${label} 최적 시간대 <b class="mono">${hourLabel(w.start)}</b> (${w.score}점)</span></li>`
-      : `<li data-s="na"><i aria-hidden="true">·</i><span>${label} — ${field.harvestable || label === "방제" ? "72시간 내 적합 시간 없음" : "시기 아님"}</span></li>`;
-    return `${tabHead(`이번 주 권장 농작업 · ${field.crop} ${esc(field.stage)}`, "작목·생육단계별 권장 작업에 기상 판단을 더함", "schedule", "engine")}
+  key: "schedule", label: "작업 시간대",
+  render: ({ field, rows, t, e }) => {
+    const win = (i) => {
+      const w = bestWindow(field, rows, t, i.key, i.key === "harvest" ? 3 : 2);
+      if (!w) {
+        const why = i.key === "harvest" && !field.harvestable ? `${esc(field.stage)} — 시기 아님` : "남은 예보 구간 없음";
+        return `<li data-s="na"><i aria-hidden="true">·</i><span>${i.label} — ${why}</span></li>`;
+      }
+      const ok = w.score >= 70;
+      return `<li data-s="${ok ? "good" : "warning"}"><i aria-hidden="true">${ok ? "✓" : "!"}</i><span>${i.label} ${ok ? "최적 시간" : "적합 시간 없음 · 가장 나은 시간"} <b class="mono">${hourLabel(w.start)}</b> (${w.score}점)</span></li>`;
+    };
+    const warn = ALERTS.find((a) => a.status === "warning");
+    return `${tabHead(`${esc(field.name)} · 72시간 내 작업별 시간대`, "기상예보·특보로 계산한 적합도가 가장 높은 시간", "fcst", "engine")}
       <div class="grid-2">
-        <div class="box"><h4>시기별 권장 작업</h4><ul class="recs">${items.map((x) => `<li data-s="neutral"><i aria-hidden="true">–</i><span>${esc(x)}</span></li>`).join("")}</ul></div>
-        <div class="box"><h4>기상 반영 작업 시간</h4><ul class="recs">
-          ${win(e.bestSpray, "방제")}
-          ${win(e.bestHarvest, "수확")}
-          ${e.nextRain ? `<li data-s="warning"><i aria-hidden="true">!</i><span>다음 강우 ${hourLabel(e.nextRain.h)} — 방제 후 6시간 이상 비 없어야 함</span></li>` : ""}
+        <div class="box"><h4>작업별 최적 시간</h4><ul class="recs">${INDEXES.filter((i) => i.kind === "suit").map(win).join("")}</ul></div>
+        <div class="box"><h4>강우 · 특보</h4><ul class="recs">
+          ${e.nextRain
+            ? `<li data-s="warning"><i aria-hidden="true">!</i><span>다음 강우 ${hourLabel(e.nextRain.h)} — 방제 후 6시간 이상 비 없어야 함</span></li>`
+            : `<li data-s="good"><i aria-hidden="true">✓</i><span>72시간 내 강우 없음</span></li>`}
+          ${warn ? `<li data-s="warning"><i aria-hidden="true">!</i><span>${esc(warn.kind)} ${esc(warn.level)} · ${esc(warn.when)}</span></li>` : ""}
         </ul></div>
       </div>`;
   },
@@ -218,9 +220,9 @@ const TAB_ROBOTS = {
     const plan = FIELDS.map((f) => {
       const e = evalAt(f, t);
       let action = { key: "na", label: "작업 연기" }, eta = "–";
-      if (e.spray.score >= 70 && e.sprayDays >= 7) { action = { key: "good", label: "방제로봇 투입" }; eta = f.area / WORK_RATE.spray; }
-      else if (e.weed.score >= 70 && e.robot.score >= 70) { action = { key: "good", label: "제초로봇 투입" }; eta = f.area / WORK_RATE.weed; }
-      else if (e.robot.score < 40) action = { key: "critical", label: "로봇 작업 불가" };
+      if (e.robot.score < 40) action = { key: "critical", label: "로봇 작업 불가" };
+      else if (e.robot.score >= 70 && e.spray.score >= 70) { action = { key: "good", label: "방제로봇 가능" }; eta = f.area / WORK_RATE.spray; }
+      else if (e.robot.score >= 70 && e.weed.score >= 70) { action = { key: "good", label: "제초로봇 가능" }; eta = f.area / WORK_RATE.weed; }
       const etaTxt = typeof eta === "number" ? `${Math.floor(eta)}h ${String(Math.round((eta % 1) * 60)).padStart(2, "0")}m` : eta;
       return { f, e, action, etaTxt };
     });
@@ -232,11 +234,10 @@ const TAB_ROBOTS = {
           <p style="margin-top:4px">배터리 <span class="mono">${r.battery}%</span></p></div>`).join("")}
       </div>
       <div class="scroll-x"><table class="tbl">
-        <thead><tr><th>필지</th><th>로봇작업</th><th>방제</th><th>제초</th><th>마지막 방제</th><th>판단</th><th>예상 작업시간</th></tr></thead>
+        <thead><tr><th>필지</th><th>로봇작업</th><th>방제</th><th>제초</th><th>판단</th><th>예상 작업시간</th></tr></thead>
         <tbody>${plan.map(({ f, e, action, etaTxt }) => `<tr${f.id === state.id ? ' class="is-current"' : ""}>
           <td><b>${esc(f.name)}</b> <small>${fmt(f.area)}㎡</small></td>
           <td class="mono">${e.robot.score}</td><td class="mono">${e.spray.score}</td><td class="mono">${e.weed.score}</td>
-          <td class="mono">${e.sprayDays}일 전</td>
           <td>${pill(action)}</td><td class="mono">${etaTxt}</td>
         </tr>`).join("")}</tbody>
       </table></div>`;

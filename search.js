@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // 주소 검색 · 지도 클릭 → 그 위치의 필지 데이터를 한 화면에 모아보기
-// 지오코딩 순서: 등록 농지 이름/주소 → 네이버 Geocoding → Flask /api/geocode (VWorld 키 있을 때) → OSM Nominatim
-// 위치 이후의 필지 속성(면적·토양·기상 보정)은 좌표 기반 목업 — 키 연동 후 실제 API로 교체
+// 검색 순서: 등록 농지 이름/주소 → VWorld 검색 → 네이버 Geocoding(?map=naver) → Flask /api/geocode → OSM Nominatim
+// 필지 경계·PNU·지목·면적은 VWorld 연속지적도(applyParcel), 토양·기상 보정값은 좌표 기반 목업
 // ---------------------------------------------------------------------------
 const searchForm = $("#search-form");
 const searchInput = $("#search-input");
@@ -66,15 +66,16 @@ async function geocode(q) {
   FIELDS.filter((f) => !f.temp && (f.name.replace(/\s+/g, "").includes(key) || f.address.replace(/\s+/g, "").includes(key)))
     .forEach((f) => out.push({ label: f.name, sub: f.address, lat: f.lat, lon: f.lon, fieldId: f.id, source: "registered" }));
 
+  if (!out.length) out.push(...(await vworldSearch(q)));
   if (!out.length) out.push(...(await naverGeocode(q)));
 
-  if (!out.some((x) => x.source === "naver")) try {
+  if (!out.length) try {
     const r = await fetch(`../api/geocode?address=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(4000) });
     const j = r.ok ? await r.json() : null;
     if (j?.source === "vworld") out.push({ label: q, sub: "VWorld 지오코딩 결과", lat: j.lat, lon: j.lon, source: "vworld" });
   } catch { /* 정적 배포(GitHub Pages)나 파일로 열었을 때는 서버 없음 */ }
 
-  if (!out.some((x) => x.source === "vworld" || x.source === "naver")) {
+  if (!out.length) {
     try {
       const { rows, used } = await nominatimSearch(q);
       rows.forEach((x) => {
@@ -120,6 +121,8 @@ function naverReverse(lat, lon) {
 }
 
 async function reverseGeocode(lat, lon) {
+  const vworldAddr = await vworldReverse(lat, lon);
+  if (vworldAddr) return vworldAddr;
   const naverAddr = await naverReverse(lat, lon);
   if (naverAddr) return naverAddr;
   try {
@@ -142,13 +145,11 @@ function makeTempField({ lat, lon, address, source }) {
   return {
     id: `S-${String(tempSeq).padStart(2, "0")}`, name: "검색 위치", temp: true, preset: "apple-hongro",
     ...CROP_PRESETS["apple-hongro"],
-    address, geocoder: source, pnu: "조회 필요", landUse: "판독 필요",
+    address, geocoder: source, pnu: "–", landUse: "–", parcelStatus: "loading",
     area: Math.round(pick(1500, 6000, 0) / 10) * 10, lat, lon,
-    tempOffset: pick(-1.4, 0.8), windOffset: coastal ? pick(1.0, 2.6) : pick(-0.3, 1.0),
-    slope: coastal ? pick(2, 9, 0) : pick(6, 22, 0), rainFactor: pick(0.6, 1.2),
-    lastSpray: `2026-09-${String(1 + Math.floor(rnd() * 12)).padStart(2, "0")}`,
-    lastRainMm: pick(6, 14, 0), dryDays: 4 + Math.floor(rnd() * 5),
-    soil: { pH: pick(5.4, 6.8), om: pick(16, 38, 0), p: pick(150, 450, 0), k: pick(0.35, 0.9, 2), ca: pick(3.8, 6.8), mg: pick(1.1, 2.3), ec: pick(0.3, 2.6) },
+    tempOffset: pick(-1.4, 0.8), windOffset: coastal ? pick(1.0, 2.6) : pick(-0.3, 1.0), rainFactor: pick(0.6, 1.2),
+    dryDays: 4 + Math.floor(rnd() * 5),
+    soil: { pH: pick(5.4, 6.8), om: pick(16, 38, 0), p: pick(150, 450, 0), ec: pick(0.3, 2.6) },
   };
 }
 
@@ -178,6 +179,7 @@ function goTo(result) {
   addFieldLayers(f);
   select(f.id, true);
   showDetailTop();
+  applyParcel(f, vworldParcelAt(f.lat, f.lon));
   return f;
 }
 
@@ -235,7 +237,7 @@ onMapClick(async (lat, lng) => {
   const f = goTo({ lat, lon: lng, label: "지도 선택 위치", sub: `지도 선택 위치 (${lat.toFixed(5)}, ${lng.toFixed(5)})`, source: "click" });
   if (!f) return;
   const addr = await reverseGeocode(lat, lng);
-  if (addr && FIELDS.includes(f)) {
+  if (addr && FIELDS.includes(f) && f.parcelStatus !== "ok") {
     f.address = addr;
     if (state.id === f.id) renderDetail();
   }
@@ -254,6 +256,5 @@ $("#detail").addEventListener("click", (ev) => {
   const f = currentField();
   f.temp = false;
   f.name = `신규 필지 ${f.id.slice(2)}`;
-  f.landUse = "과수원(가정)";
   renderAll();
 });

@@ -92,13 +92,13 @@ function renderList() {
 }
 
 // ---------------------------------------------------------------------------
-// 지도 — 네이버 지도 우선, 인증 실패·미로드 시 Leaflet(Esri 위성)로 대체 (mapview.js)
-// 필지 폴리곤은 목업 (실서비스: VWorld 연속지적도 / 팜맵 경계)
+// 지도 — 기본 Leaflet + VWorld, ?map=naver면 네이버 지도(실패 시 Leaflet으로 대체) (mapview.js)
+// 필지 경계는 VWorld 연속지적도 (applyParcel)
 // ---------------------------------------------------------------------------
 let mapView = createMapView($("#map"));
 const mapClickHandlers = [];
 let activeBase = "sat";
-let cadastralOn = false;
+let cadastralOn = true; // 지적도 기본 표시 (확대했을 때만 보임)
 
 function showMapNote(text) {
   const note = $("#map-note");
@@ -141,6 +141,7 @@ function removeFieldLayers(id) { mapView.removeField(id); }
 
 function mountFields() {
   FIELDS.forEach(addFieldLayers);
+  if (cadastralOn) mapView.toggleCadastral(true);
   renderTools();
 }
 mountFields();
@@ -157,7 +158,7 @@ function fallbackToLeaflet(message) {
   mapView = LeafletView(fresh);
   mapClickHandlers.forEach((cb) => mapView.onClick(cb));
   activeBase = "sat";
-  cadastralOn = false;
+  cadastralOn = true;
   mountFields();
   renderMap();
   fitAll();
@@ -230,36 +231,37 @@ function detailHead(f) {
       <dl class="d-facts">
         <div><dt>작물 · 품종</dt><dd>${f.crop} ${esc(f.cultivar)} <small>${esc(f.maturity)}</small></dd></div>
         <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
-        <div><dt>면적 · 판독</dt><dd><span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}</dd></div>
+        <div><dt>면적 · 지목</dt><dd><span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}${src("parcel")}</dd></div>
         <div><dt>PNU</dt><dd class="mono">${f.pnu}${src("parcel")}</dd></div>
       </dl>`;
   }
   const options = Object.entries(CROP_PRESETS)
     .map(([k, p]) => `<option value="${k}"${k === f.preset ? " selected" : ""}>${p.crop} ${p.cultivar} · ${p.stage}</option>`)
     .join("");
+  const parcelTxt = { loading: "필지 조회 중…", none: "필지 정보 없음" }[f.parcelStatus];
   return `
     <div class="d-title"><h2>${esc(f.name)}</h2><span class="d-id">${f.id}</span><span class="tag">미등록 필지</span></div>
-    <div class="d-addr">${esc(f.address)}${src(f.geocoder)}</div>
+    <div class="d-addr">${esc(f.address)}${src(f.parcelStatus === "ok" ? "parcel" : f.geocoder)}</div>
     <dl class="d-facts">
-      <div><dt><label for="crop-preset">작물 · 품종 (선택)</label></dt><dd><select id="crop-preset">${options}</select></dd></div>
+      <div><dt><label for="crop-preset">작물 · 품종 (가정)</label></dt><dd><select id="crop-preset">${options}</select></dd></div>
       <div><dt>생육단계</dt><dd>${esc(f.stage)}${src("growth")}</dd></div>
-      <div><dt>면적</dt><dd><span class="mono">${fmt(f.area)}㎡</span> <small>예시</small></dd></div>
-      <div><dt>좌표</dt><dd class="mono">${f.lat.toFixed(5)}, ${f.lon.toFixed(5)}</dd></div>
+      <div><dt>면적 · 지목</dt><dd>${parcelTxt ?? `<span class="mono">${fmt(f.area)}㎡</span> · ${esc(f.landUse)}`}</dd></div>
+      <div><dt>PNU</dt><dd class="mono">${parcelTxt ? "–" : `${f.pnu}${src("parcel")}`}</dd></div>
     </dl>
     <div class="d-actions">
       <button type="button" class="btn" id="add-field">내 농지에 추가</button>
-      <small>경계·PNU·토양은 API 키 연동 후 실제 값으로 바뀝니다</small>
+      <small>주소·필지는 VWorld 실제 값, 기상·토양·병해충은 목업입니다</small>
     </div>`;
 }
 
 function summaryBlock(f, e) {
   const s = siteSummary(f, hourlyOf(f), state.t, e);
-  const word = { good: "양호", warning: "보통", critical: "주의" };
+  const word = { good: "양호", warning: "주의", critical: "위험" };
   return `<div class="d-summary" data-s="${s.verdict.key}">
-    <div class="d-sec-head"><h3>${f.temp ? "이 위치 종합" : "필지 종합"} · ${hourLabel(state.t)}</h3>${src("engine")}</div>
+    <div class="d-sec-head"><h3>${f.temp ? "이 위치" : "이 필지"} 지금 할 작업 · ${hourLabel(state.t)}</h3>${src("engine")}</div>
     <div class="verdict">
-      <span class="verdict-score mono">${s.total}</span>
-      <div>${pill(s.verdict)}<p>${esc(s.headline)}</p></div>
+      <span class="verdict-score mono">${s.best.score}</span>
+      <div>${pill(s.verdict, `${s.best.label} ${s.verdict.label}`)}<p>${esc(s.headline)}</p></div>
     </div>
     <ul class="sum-list">${s.items.map((x) => `<li title="출처: ${esc(SRC[x.src])}">
       <span class="sum-label">${x.label}</span>${pill({ key: x.status, label: word[x.status] })}<span class="sum-text">${esc(x.text)}</span>
@@ -282,7 +284,7 @@ function renderDetail() {
         <div><span class="wx-v">${r.wind}<small>m/s</small></span><span class="wx-l">풍속</span></div>
         <div><span class="wx-v">${r.pop}<small>%</small></span><span class="wx-l">강수확률</span></div>
       </div>
-      <div class="wx-sky">${r.sky}${r.pcp ? ` · 시간당 ${r.pcp}mm` : ""} · 마지막 방제 ${e.sprayDays}일 전</div>
+      <div class="wx-sky">${r.sky}${r.pcp ? ` · 시간당 ${r.pcp}mm` : ""}</div>
     </div>
     <div class="d-scores">
       <div class="d-sec-head"><h3>작업 판단</h3>${src("engine")}</div>
@@ -326,3 +328,17 @@ function renderAll() {
 
 fitAll();
 renderAll();
+
+// VWorld 연속지적도 필지로 경계·PNU·주소·지목·면적을 채우고 다시 그림 (못 찾으면 핀만)
+async function applyParcel(f, lookup) {
+  const p = await lookup;
+  if (!FIELDS.includes(f)) return;
+  f.parcelStatus = p ? "ok" : "none";
+  if (p) {
+    Object.assign(f, { pnu: p.pnu, address: p.address, landUse: p.landUse, area: p.area, rings: p.rings });
+    removeFieldLayers(f.id);
+    addFieldLayers(f);
+  }
+  renderAll();
+}
+FIELDS.forEach((f) => applyParcel(f, vworldParcelByPnu(f.pnu)));

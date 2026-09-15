@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// 판단엔진 v0 (Risk Engine) — 공공데이터 입력을 0~100 점수로 바꾸는 규칙.
+// 판단엔진 v0 (Risk Engine) — 기상예보·특보를 작업별 0~100 적합도로 바꾸는 규칙.
 // 수치 기준은 데모용 초안이며, 실제 기준은 농진청 자료·현장 검증으로 확정해야 함.
 // ---------------------------------------------------------------------------
 const INDEXES = [
@@ -19,13 +19,6 @@ function hourLabel(h) {
   const d = new Date(BASE_DATE + "T00:00:00");
   d.setHours(d.getHours() + h);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}시`;
-}
-
-function daysBetween(isoA, h) {
-  const a = new Date(isoA + "T00:00:00");
-  const b = new Date(BASE_DATE + "T00:00:00");
-  b.setHours(b.getHours() + h);
-  return Math.floor((b - a) / 86400000);
 }
 
 // 강풍 예비특보: 16일 12시 ~ 20시
@@ -110,8 +103,6 @@ const SCORERS = {
     const s = rule(0);
     s.add(dry * 9, `무강우 ${dry}일`);
     if (maxT > 22) s.add(Math.round((maxT - 22) * 4), `24시간 최고기온 ${maxT}℃`);
-    if (RESERVOIR.rate < RESERVOIR.normalRate) s.add(8, `저수율 ${RESERVOIR.rate}% (평년 ${RESERVOIR.normalRate}%)`);
-    if (field.soil.om < 25) s.add(8, "유기물 부족 (보수력 낮음)");
     if (rainNext >= 10) s.add(-45, `48시간 내 강우 ${rainNext.toFixed(1)}mm 예상`);
     else if (rainNext >= 5) s.add(-25, `48시간 내 강우 ${rainNext.toFixed(1)}mm (적음)`);
     if (rainPast >= 5) s.add(-50, `최근 24시간 강우 ${rainPast.toFixed(1)}mm`);
@@ -125,8 +116,6 @@ const SCORERS = {
     if (r.pcp > 0) s.add(-90, "현재 강우");
     if (rain6 > 2) s.add(-30, `최근 6시간 강우 ${rain6.toFixed(1)}mm (노면 미끄럼)`);
     if (r.pop >= 60) s.add(-30, `강수확률 ${r.pop}%`);
-    if (field.slope > 15) s.add(-25, `경사 ${field.slope}% (주행 제한)`);
-    else if (field.slope > 10) s.add(-10, `경사 ${field.slope}%`);
     if (r.wind > 6) s.add(-30, `풍속 ${r.wind}m/s`);
     else if (r.wind > 4.5) s.add(-10, `풍속 ${r.wind}m/s`);
     if (isNight(r.hod, 5, 20)) s.add(-20, "야간 (조명 필요)");
@@ -135,18 +124,19 @@ const SCORERS = {
   },
 };
 
-function pestRisks(field, rows, t) {
+// 병해충 — 지역 예찰 수준은 그대로 두고, 필지 기상에서 발병 조건이 이어진 시간만 센다 (점수화하지 않음)
+const PEST_LEVEL_RANK = { 주의: 0, 관심: 1 };
+function pestWatch(field, rows, t) {
   const win = slice(rows, t - 24, t + 48);
-  const wetWarm = win.filter((x) => (x.pcp > 0 || x.hum >= 88) && x.temp >= 18 && x.temp <= 30).length;
-  const humid = win.filter((x) => x.hum >= 85).length;
-  const warm = win.filter((x) => x.temp >= 20).length;
-  return PEST_BULLETIN.filter((p) => p.crop === field.crop).map((p) => {
-    const base = p.level === "주의" ? 35 : 15;
-    const env = p.sensitive === "rain" ? wetWarm * 3.2 : p.sensitive === "humid" ? humid * 1.6 : warm * 0.5;
-    const score = clamp(base + env);
-    const why = p.sensitive === "rain" ? `고온다습 ${wetWarm}시간` : p.sensitive === "humid" ? `습도 85%↑ ${humid}시간` : `20℃↑ ${warm}시간`;
-    return { ...p, score, why, status: score >= 70 ? "critical" : score >= 40 ? "warning" : "good" };
-  }).sort((a, b) => b.score - a.score);
+  const hours = {
+    rain: win.filter((x) => (x.pcp > 0 || x.hum >= 88) && x.temp >= 18 && x.temp <= 30).length,
+    humid: win.filter((x) => x.hum >= 85).length,
+    warm: win.filter((x) => x.temp >= 20).length,
+  };
+  const label = { rain: "고온다습", humid: "습도 85%↑", warm: "20℃↑" };
+  return PEST_BULLETIN.filter((p) => p.crop === field.crop)
+    .map((p) => ({ ...p, hours: hours[p.sensitive], why: `${label[p.sensitive]} ${hours[p.sensitive]}시간` }))
+    .sort((a, b) => PEST_LEVEL_RANK[a.level] - PEST_LEVEL_RANK[b.level] || b.hours - a.hours);
 }
 
 function bestWindow(field, rows, from, key, len = 2) {
@@ -168,8 +158,6 @@ function soilAdvice(soil) {
   if (soil.pH > R.pH.max) out.push(`pH ${soil.pH} — 산성 비료 위주 시비`);
   if (soil.om < R.om.min) out.push(`유기물 ${soil.om}g/kg — 퇴비 보충`);
   if (soil.p > R.p.max) out.push(`유효인산 ${soil.p}mg/kg — 인산 비료 생략`);
-  if (soil.k < R.k.min) out.push(`칼륨 ${soil.k} — 칼리 추가 시비`);
-  if (soil.ca < R.ca.min) out.push(`칼슘 ${soil.ca} — 고두병 주의, 칼슘제 엽면시비`);
   if (soil.ec > R.ec.max) out.push(`EC ${soil.ec}dS/m — 염류 집적, 시비량 줄이기`);
   return out;
 }
@@ -180,8 +168,7 @@ function evaluate(field, rows, t) {
     const r = SCORERS[idx.key](field, rows, t);
     result[idx.key] = { ...r, status: statusOf(r.score, idx.kind) };
   }
-  result.sprayDays = daysBetween(field.lastSpray, t);
-  result.pests = pestRisks(field, rows, t);
+  result.pests = pestWatch(field, rows, t);
   result.bestSpray = bestWindow(field, rows, t, "spray");
   result.bestHarvest = field.harvestable ? bestWindow(field, rows, t, "harvest", 3) : null;
   result.nextRain = rows.find((x) => x.h > t && x.pcp > 0) || null;
@@ -192,20 +179,18 @@ function evaluate(field, rows, t) {
 
 function recommend(field, rows, t, e) {
   const recs = [];
-  const rainTxt = e.nextRain ? `${hourLabel(e.nextRain.h)} 강우 전` : "";
+  const rainTxt = e.nextRain ? ` — ${hourLabel(e.nextRain.h)} 강우 전 마무리 권장` : "";
   if (field.harvestable) {
-    if (e.harvest.score >= 70) recs.push({ tone: "good", text: `지금 수확 적합 — ${rainTxt} 마무리 권장` });
+    if (e.harvest.score >= 70) recs.push({ tone: "good", text: `지금 수확 적합${rainTxt}` });
     else if (e.bestHarvest) recs.push({ tone: "warning", text: `수확은 ${hourLabel(e.bestHarvest.start)}부터 적합 (${e.bestHarvest.score}점)` });
   }
-  if (e.sprayDays < 7) {
-    recs.push({ tone: "neutral", text: `방제 간격 여유 — 마지막 방제 후 ${e.sprayDays}일` });
-  } else if (e.spray.score >= 70) {
-    recs.push({ tone: "good", text: `지금 방제 적합 — 마지막 방제 후 ${e.sprayDays}일 경과` });
+  if (e.spray.score >= 70) {
+    recs.push({ tone: "good", text: "지금 방제 적합" });
   } else if (e.bestSpray) {
     recs.push({ tone: "warning", text: `방제는 ${hourLabel(e.bestSpray.start)}~${String((e.bestSpray.end) % 24).padStart(2, "0")}시 적합 (${e.bestSpray.score}점)` });
   }
-  const topPest = e.pests[0];
-  if (topPest && topPest.score >= 60) recs.push({ tone: "critical", text: `${topPest.name} 위험 ${topPest.score} — 강우 후 예방 방제 검토` });
+  const watch = e.pests.find((p) => p.level === "주의");
+  if (watch) recs.push({ tone: "warning", text: `${watch.name} 지역 예찰 '주의' — ${watch.why}` });
   if (e.irrigation.score >= 70) recs.push({ tone: "warning", text: "관수 필요 — 점적관수 가동 검토" });
   else if (e.irrigation.score < 40 && e.nextRain) recs.push({ tone: "good", text: "관수 불필요 — 예보 강우로 대체" });
   if (alertActive(t) || (t < 36 && t + 24 >= 36)) recs.push({ tone: "warning", text: "16일 오후 강풍 예비특보 — 로봇·고소작업 일정 조정" });
@@ -214,47 +199,42 @@ function recommend(field, rows, t, e) {
 }
 
 // ---------------------------------------------------------------------------
-// 위치 종합 판정 — 검색·선택한 위치가 지금 괜찮은지 항목별로 모아 한 줄씩 요약
+// 위치 판정 — 지금 가장 적합한 작업 + 그 판단에 쓴 기상·특보·병해충 사실
+// 항목별 점수를 임의 가중치로 합치지 않는다.
 // ---------------------------------------------------------------------------
 function siteSummary(field, rows, t, e) {
   const next24 = slice(rows, t, t + 24);
   const maxPop = Math.max(...next24.map((x) => x.pop));
   const maxWind = Math.max(...next24.map((x) => x.wind));
   const rain24 = sum(next24, (x) => x.pcp);
-  const st = (score) => (score >= 70 ? "good" : score >= 40 ? "warning" : "critical");
-  const items = [];
 
-  const wxScore = clamp(100 - (maxPop >= 60 ? 40 : maxPop >= 30 ? 15 : 0) - (maxWind > 6 ? 35 : maxWind > 4 ? 15 : 0));
-  items.push({ key: "weather", label: "기상 24시간", score: wxScore, src: "fcst",
-    text: `강수확률 최대 ${maxPop}% · 강수 ${rain24.toFixed(1)}mm · 풍속 최대 ${maxWind}m/s` });
+  // 로봇작업은 작업 종류가 아니라 로봇 투입 여건이므로 "가장 적합한 작업" 후보에서 뺀다
+  const works = ["spray", "harvest", "weed"].filter((k) => e[k].score !== null)
+    .map((k) => ({ label: INDEXES.find((i) => i.key === k).label, ...e[k] }))
+    .sort((a, b) => b.score - a.score);
+  const best = works[0];
+  const verdict = statusOf(best.score, "suit");
+  const blocker = best.factors.reduce((a, b) => (b.delta < a.delta ? b : a), { delta: 0, text: "" }).text;
+  const also = works.slice(1).filter((w) => w.score >= 70).map((w) => w.label);
+  const robotTxt = e.robot.score >= 70 ? " · 로봇 투입 가능" : "";
+  const headline = verdict.key === "good"
+    ? `지금 가장 적합한 작업: ${best.label}${also.length ? `, ${also.join("·")}도 가능` : ""}${robotTxt}`
+    : verdict.key === "warning" ? `${best.label} 가능하나 주의: ${blocker}`
+    : `지금은 작업하기 어렵습니다: ${blocker}`;
 
   const warn = ALERTS.find((a) => a.status === "warning");
   const alertSoon = slice(rows, t, t + 48).some((x) => alertActive(x.h));
-  const alertScore = alertActive(t) ? 20 : alertSoon ? 55 : 100;
-  items.push({ key: "alert", label: "기상특보", score: alertScore, src: "warn",
-    text: alertActive(t) ? `${warn.kind} ${warn.level} 발효 중` : alertSoon ? `${warn.kind} ${warn.level} · ${warn.when}` : "48시간 내 특보 없음" });
-
-  const top = e.pests[0];
-  items.push({ key: "pest", label: "병해충", score: top ? 100 - top.score : 100, src: "pest",
-    text: top ? `${top.name} 위험 ${top.score} (${top.why})` : "주요 병해충 정보 없음" });
-
-  items.push({ key: "soil", label: "토양", score: clamp(100 - e.soil.length * 22), src: "soil",
-    text: e.soil.length ? `${e.soil.length}개 항목 조정 필요 · ${e.soil[0]}` : "검정 항목 모두 적정" });
-
-  items.push({ key: "water", label: "물 관리", score: clamp(100 - Math.max(0, e.irrigation.score - 30)), src: "reservoir",
-    text: `관수 필요도 ${e.irrigation.score} · ${RESERVOIR.name} 저수율 ${RESERVOIR.rate}%` });
-
-  const work = [["수확", e.harvest.score ?? -1], ["방제", e.spray.score], ["제초", e.weed.score]].sort((a, b) => b[1] - a[1])[0];
-  items.push({ key: "work", label: "작업 여건", score: work[1], src: "engine",
-    text: `지금 가장 적합한 작업: ${work[0]} ${work[1]}점 · 로봇작업 ${e.robot.score}점` });
-
-  items.forEach((x) => { x.status = st(x.score); });
-  const weights = { weather: 0.25, alert: 0.15, pest: 0.2, soil: 0.1, water: 0.1, work: 0.2 };
-  const total = clamp(sum(items, (x) => x.score * weights[x.key]));
-  const worst = items.reduce((a, b) => (b.score < a.score ? b : a));
-  const verdict = total >= 70 ? { key: "good", label: "좋음" } : total >= 45 ? { key: "warning", label: "보통" } : { key: "critical", label: "주의" };
-  const headline = verdict.key === "good"
-    ? `지금 작업하기 좋은 여건입니다${worst.score < 70 ? ` · ${worst.label}만 확인하세요` : ""}`
-    : verdict.key === "warning" ? `${worst.label} 때문에 여건이 보통입니다` : `${worst.label} 문제로 작업을 미루는 게 좋습니다`;
-  return { total, verdict, headline, items };
+  const rainNow = rows[t].pcp > 0;
+  const watch = e.pests.filter((p) => p.level === "주의");
+  const items = [
+    { label: "기상 24시간", src: "fcst", status: maxPop >= 60 || maxWind > 6 ? "warning" : "good",
+      text: `강수확률 최대 ${maxPop}% · 강수 ${rain24.toFixed(1)}mm · 풍속 최대 ${maxWind}m/s` },
+    { label: "기상특보", src: "warn", status: alertActive(t) ? "critical" : alertSoon ? "warning" : "good",
+      text: alertActive(t) ? `${warn.kind} ${warn.level} 발효 중` : alertSoon ? `${warn.kind} ${warn.level} · ${warn.when}` : "48시간 내 특보 없음" },
+    { label: "강우", src: "fcst", status: rainNow ? "critical" : e.nextRain && e.nextRain.h - t <= 6 ? "warning" : "good",
+      text: rainNow ? `지금 비 (시간당 ${rows[t].pcp}mm)` : e.nextRain ? `다음 비 ${hourLabel(e.nextRain.h)}` : "72시간 내 비 없음" },
+    { label: "병해충", src: "pest", status: watch.length ? "warning" : "good",
+      text: watch.length ? `${watch.map((p) => p.name).join("·")} 지역 예찰 '주의'` : "지역 예찰 '주의' 없음" },
+  ];
+  return { best, verdict, headline, items };
 }
