@@ -92,7 +92,7 @@ async function openRobot3D(id) {
       <button type="button" class="r3d-close" aria-label="3D 카드 닫기">×</button>
     </div>
     <div class="r3d-view"></div>
-    <p class="r3d-hint">드래그 회전 · 휠 확대 · 오른쪽 드래그 이동 · <b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑</b> 작업 구역 · 흰 점 홈</p>`;
+    <p class="r3d-hint">화면을 누른 뒤 WASD 이동(Shift 빠르게) · 드래그 회전 · 휠 확대 · 오른쪽 드래그 이동 ·<b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑</b> 작업 구역 · 흰 점 홈</p>`;
   const card = { rm, el, dispose: () => {} };
   card3d = card;
   el.querySelector(".r3d-close").addEventListener("click", closeRobot3D);
@@ -170,9 +170,45 @@ function mountCloud(el, rm, buf) {
   add(new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff })))
     .position.copy(v3(local[rm.route.home]));
 
-  let raf = 0;
+  // WASD 이동 — 3D 화면을 누른 뒤(포커스)에만 동작. 보는 방향 기준 수평 이동, Shift는 3배.
+  // 한글 입력 상태에서도 되도록 e.key가 아니라 e.code(물리 키)로 판단
+  const MOVE = { KeyW: [0, 1], KeyS: [0, -1], KeyA: [-1, 0], KeyD: [1, 0] };
+  const held = new Set();
+  let fast = false;
+  const canvas = renderer.domElement;
+  canvas.tabIndex = 0;
+  canvas.addEventListener("pointerdown", () => canvas.focus({ preventScroll: true }));
+  const onKey = (e) => {
+    fast = e.shiftKey;
+    if (!MOVE[e.code]) return;
+    e.preventDefault();
+    if (e.type === "keydown") held.add(e.code);
+    else held.delete(e.code);
+  };
+  canvas.addEventListener("keydown", onKey);
+  canvas.addEventListener("keyup", onKey);
+  canvas.addEventListener("blur", () => held.clear());
+  const fwd = new THREE.Vector3(), right = new THREE.Vector3(), step = new THREE.Vector3();
+  const walk = (dt) => {
+    camera.getWorldDirection(fwd).setY(0);
+    if (fwd.lengthSq() < 1e-6) fwd.set(0, 1, 0).applyQuaternion(camera.quaternion).setY(0); // 바로 위에서 볼 때는 화면 위쪽이 앞
+    fwd.normalize();
+    right.crossVectors(fwd, camera.up).normalize();
+    step.set(0, 0, 0);
+    held.forEach((code) => step.addScaledVector(right, MOVE[code][0]).addScaledVector(fwd, MOVE[code][1]));
+    if (!step.lengthSq()) return;
+    step.normalize().multiplyScalar((fast ? 45 : 15) * dt); // m/s
+    camera.position.add(step);
+    controls.target.add(step);
+  };
+
+  let raf = 0, last = performance.now();
   const frame = () => {
     raf = requestAnimationFrame(frame);
+    const now = performance.now();
+    const dt = Math.min(0.1, (now - last) / 1000); // 탭을 오래 비웠다 돌아와도 한 번에 멀리 가지 않게
+    last = now;
+    if (held.size) walk(dt);
     controls.update();
     renderer.render(scene, camera);
   };
