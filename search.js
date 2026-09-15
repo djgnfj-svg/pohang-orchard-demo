@@ -48,8 +48,8 @@ async function nominatimSearch(q) {
 
 async function geocode(q) {
   const key = q.replace(/\s+/g, "");
-  const out = state.saved.filter((p) => String(p.address).replace(/\s+/g, "").includes(key))
-    .map((p) => ({ label: p.label, sub: p.address, lat: p.lat, lon: p.lon, parcelId: p.id, source: "saved" }));
+  const out = listed().filter((p) => String(p.address).replace(/\s+/g, "").includes(key))
+    .map((p) => ({ label: p.label, sub: p.address, lat: p.lat, lon: p.lon, parcelId: p.id, source: p.shared ? "shared" : "saved" }));
 
   if (!out.length) out.push(...(await vworldSearch(q)));
   if (!out.length) out.push(...(await naverGeocode(q)));

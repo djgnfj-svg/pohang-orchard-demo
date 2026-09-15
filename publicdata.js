@@ -142,15 +142,63 @@ function loadShort(lat, lon) {
   });
 }
 
-// 중기예보: 06·18시 발표. 육상(대구·경북 11H10000) + 기온(포항 11H10201)
-function loadMid() {
+// ---------------------------------------------------------------------------
+// 필지 주소 → 중기예보 구역(육상 권역 + 기온 도시)과 특보 검색어. 구역 코드는 regions.js
+// ---------------------------------------------------------------------------
+const SIDO_LAND = [
+  [/^(서울|인천|경기)/, "11B00000"], [/^(대전|세종|충청남|충남)/, "11C20000"], [/^(충청북|충북)/, "11C10000"],
+  [/^(광주|전라남|전남)/, "11F20000"], [/^(전북|전라북)/, "11F10000"], [/^(대구|경상북|경북)/, "11H10000"],
+  [/^(부산|울산|경상남|경남)/, "11H20000"], [/^제주/, "11G00000"], [/^강원/, "11D"], // 강원은 도시로 영서·영동 결정
+];
+// 기온 코드가 없는 시군은 권역 대표 도시 기온을 쓴다
+const LAND_CAPITAL = {
+  "11B00000": "서울", "11C10000": "청주", "11C20000": "대전", "11D10000": "춘천", "11D20000": "강릉",
+  "11F10000": "전주", "11F20000": "광주", "11G00000": "제주", "11H10000": "대구", "11H20000": "부산",
+};
+
+// 도시 코드 → 육상 권역: 코드 앞자리가 가장 길게 겹치는 권역 (21F… 목포권은 11F…, 백령도는 인천, 울릉도·독도는 경북)
+function landOfCity(code) {
+  if (code.startsWith("11A")) return "11B00000";
+  if (code.startsWith("11E")) return "11H10000";
+  const c = code.replace(/^21/, "11");
+  let best = null, len = 0;
+  MID_LAND.forEach(([lc]) => {
+    let n = 0;
+    while (n < 8 && lc[n] === c[n]) n++;
+    if (n > len) { best = lc; len = n; }
+  });
+  return len >= 3 ? best : null;
+}
+
+// "경상북도 포항시 북구 …" → { place: "포항", land: [11H10000, 경상북도], city: [11H10201, 포항], exact }
+function regionOf(address) {
+  const t = String(address || "").trim().split(/\s+/);
+  const sido = t[0] || "";
+  const hit = SIDO_LAND.find(([re]) => re.test(sido));
+  if (!hit) return null;
+  const metro = /(특별시|광역시|특별자치시)$/.test(sido);
+  const place = (metro ? sido : t[1] || "").replace(/(특별자치시|특별시|광역시|시|군|구)$/, "");
+  if (place.length < 2) return null;
+  const inLand = (code) => (hit[1] === "11D" ? String(landOfCity(code)).startsWith("11D") : landOfCity(code) === hit[1]);
+  let city = MID_CITY.find(([c, n]) => n.replace(/도$/, "") === place && inLand(c))
+    || MID_CITY.find(([c, n]) => n.startsWith(place) && inLand(c));
+  const exact = !!city;
+  const land = hit[1] === "11D" ? (city ? landOfCity(city[0]) : "11D10000") : hit[1];
+  if (!city) city = MID_CITY.find(([c, n]) => n === LAND_CAPITAL[land] && landOfCity(c) === land);
+  const landRow = MID_LAND.find(([c]) => c === land);
+  return city && landRow ? { place, land: landRow, city, exact } : null;
+}
+
+// 중기예보: 06·18시 발표. 육상예보(권역 날씨·강수확률) + 중기기온(도시)
+function loadMid(region) {
   const t = kst(-30);
   const tmFc = t.hour >= 18 ? `${t.ymd}1800` : t.hour >= 6 ? `${t.ymd}0600` : `${ymdShift(t.ymd, -1)}1800`;
-  return cached(`mid:${tmFc}`, 60, async () => {
+  const [landId, landName] = region.land, [cityId, cityName] = region.city;
+  return cached(`mid:${tmFc}:${landId}:${cityId}`, 60, async () => {
     const q = { dataType: "JSON", numOfRows: "10", pageNo: "1", tmFc };
     const [land, ta] = await Promise.all([
-      pdCall(`${KMA}MidFcstInfoService/getMidLandFcst`, { ...q, regId: "11H10000" }),
-      pdCall(`${KMA}MidFcstInfoService/getMidTa`, { ...q, regId: "11H10201" }),
+      pdCall(`${KMA}MidFcstInfoService/getMidLandFcst`, { ...q, regId: landId }),
+      pdCall(`${KMA}MidFcstInfoService/getMidTa`, { ...q, regId: cityId }),
     ]);
     const L = land[0] || {}, T = ta[0] || {};
     const baseYmd = tmFc.slice(0, 8);
@@ -162,18 +210,19 @@ function loadMid() {
       const ymd = ymdShift(baseYmd, n);
       days.push({ ymd, label: dayLabel(ymd), min: T[`taMin${n}`], max: T[`taMax${n}`], sky: am === pm ? am : `${am}→${pm}`, pop });
     }
-    return { base: timeLabel(baseYmd, tmFc.slice(8)), days };
+    const where = `${cityName}${region.exact ? "" : "(대표 도시)"} 기온 · ${landName} 날씨`;
+    return { base: timeLabel(baseYmd, tmFc.slice(8)), days, where };
   });
 }
 
-// 기상특보 현황(전국 발표문)에서 포항이 들어간 줄만
-function loadWarn() {
-  return cached("warn", 10, async () => {
-    const rows = await pdCall(`${KMA}WthrWrnInfoService/getPwnStatus`, { dataType: "JSON", numOfRows: "10", pageNo: "1" });
+// 기상특보 현황(전국 발표문)에서 필지 시군 이름이 들어간 줄만
+function loadWarn(region) {
+  return cached(`warn:${region.place}`, 10, async () => {
+    const rows = await cached("warn-status", 10, () => pdCall(`${KMA}WthrWrnInfoService/getPwnStatus`, { dataType: "JSON", numOfRows: "10", pageNo: "1" }));
     const r = rows[0] || {};
-    const pick = (s) => String(s || "").split(/\r?\n/).map((x) => x.replace(/^o\s*/, "").trim()).filter((x) => x.includes("포항"));
+    const pick = (s) => String(s || "").split(/\r?\n/).map((x) => x.replace(/^o\s*/, "").trim()).filter((x) => x.includes(region.place));
     const fc = String(r.tmFc || "");
-    return { at: fc ? timeLabel(fc.slice(0, 8), fc.slice(8, 12)) : "", active: pick(r.t6), pre: pick(r.t7) };
+    return { place: region.place, at: fc ? timeLabel(fc.slice(0, 8), fc.slice(8, 12)) : "", active: pick(r.t6), pre: pick(r.t7) };
   });
 }
 
@@ -223,8 +272,11 @@ function ensurePublicData(p) {
   };
   start("now", () => loadNow(p.lat, p.lon));
   start("short", () => loadShort(p.lat, p.lon));
-  start("mid", loadMid);
-  start("warn", loadWarn);
+  const region = regionOf(p.address); // 주소가 아직 없으면(조회 중) 다음 렌더 때 시작
+  if (region) {
+    start("mid", () => loadMid(region));
+    start("warn", () => loadWarn(region));
+  }
   if (p.status === "ok" && p.pnu) {
     start("soil", () => loadSoil(p.pnu));
     start("pest", () => loadPest(p.pnu));
@@ -265,14 +317,18 @@ function renderPublicData(p) {
         </tr>`).join("")}</tbody>
       </table></div>
       <p class="d-note">${s.nextRain ? `다음 ${esc(s.nextRain.kind)} ${esc(s.nextRain.at)} (강수확률 ${s.nextRain.pop}%)` : "단기예보 기간에 비 소식 없음"} · 앞으로 24시간 최대풍속 ${s.maxWind24}m/s</p>
-      <p class="d-note">${esc(s.days[0]?.label ?? "")}~${esc(s.days.at(-1)?.label ?? "")} 단기예보 ${esc(s.base)} 발표(이 위치 격자)${mid.length ? ` · 이후 중기예보 ${esc(pd.mid.data.base)} 발표(포항)` : pd.mid?.status === "loading" ? " · 중기예보 불러오는 중" : ""}</p>`;
+      <p class="d-note">${esc(s.days[0]?.label ?? "")}~${esc(s.days.at(-1)?.label ?? "")} 단기예보 ${esc(s.base)} 발표(이 위치 격자)${mid.length ? ` · 이후 중기예보 ${esc(pd.mid.data.base)} 발표(${esc(pd.mid.data.where)})` : pd.mid?.status === "loading" ? " · 중기예보 불러오는 중" : ""}</p>`;
   }));
 
-  parts.push(pdSection("기상특보", ["kmaWarn"], pd.warn, (w) => {
+  // 주소를 끝내 못 찾은 위치(바다 등)는 특보 구역을 정할 수 없음
+  const noRegion = p.status !== "loading" && !regionOf(p.address);
+  parts.push(pdSection("기상특보", ["kmaWarn"], noRegion ? { status: "ok", data: null } : pd.warn, (w) => {
+    if (!w) return '<p class="d-empty">주소를 확인하지 못해 특보 지역을 정할 수 없습니다</p>';
     const list = [...w.active.map((x) => ["발효", x]), ...w.pre.map((x) => ["예비", x])];
     return (list.length
       ? `<ul class="warn-list">${list.map(([k, x]) => `<li><b>${k}</b> ${esc(x)}</li>`).join("")}</ul>`
-      : '<p class="d-empty">포항 관련 발효·예비특보 없음</p>') + `<p class="d-note">${esc(w.at)} 발표 기준</p>`;
+      : `<p class="d-empty">${esc(w.place)} 관련 발효·예비특보 없음</p>`)
+      + `<p class="d-note">${esc(w.at)} 발표 기준 · 특보 문구에 "${esc(w.place)}" 포함된 항목</p>`;
   }));
 
   if (p.status === "ok") {

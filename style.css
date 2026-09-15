@@ -196,6 +196,7 @@ small { font-size: 11px; color: var(--muted); font-weight: 400; }
 .field-row:hover { background: var(--surface-2); }
 .field-row[aria-pressed="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
 .fr-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fr-name .tag { margin-right: 6px; vertical-align: 1px; }
 .fr-meta { font-size: 12px; color: var(--muted); }
 .fr-remove {
   flex-shrink: 0; width: 26px; height: 26px; border: 0; border-radius: 6px; cursor: pointer;

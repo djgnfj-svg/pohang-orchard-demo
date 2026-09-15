@@ -31,8 +31,16 @@ function persist() {
   } catch { /* 저장소를 못 쓰면(사생활 보호 모드 등) 이번 방문에만 유지 */ }
 }
 
-const state = { saved: loadSaved(), selection: null, id: null };
-const allParcels = () => (state.selection ? [state.selection, ...state.saved] : state.saved);
+// 공유 필지(config.js)는 모두에게 보이고 삭제할 수 없음. 같은 PNU를 내 필지에 저장해 뒀으면 공유 쪽만 표시
+const shared = SHARED_PARCELS.map((r) => ({ ...r, id: r.pnu, label: shortAddr(r.address), status: "loading", saved: false, shared: true }));
+const state = {
+  shared,
+  saved: loadSaved().filter((p) => !shared.some((s) => s.pnu === p.pnu)),
+  selection: null,
+  id: shared[0]?.id ?? null,
+};
+const listed = () => [...state.shared, ...state.saved];
+const allParcels = () => (state.selection ? [state.selection, ...listed()] : listed());
 const current = () => allParcels().find((p) => p.id === state.id) ?? null;
 const src = (key) => `<span class="src" title="데이터 출처">${esc(SRC[key])}</span>`;
 
@@ -122,7 +130,7 @@ if (mapView.kind === "naver") {
 }
 
 function fitAll() {
-  mapView.fit(state.saved.map((p) => [p.lat, p.lon]));
+  mapView.fit(listed().map((p) => [p.lat, p.lon]));
 }
 
 function renderMap() {
@@ -151,7 +159,7 @@ async function applyParcel(p, lookup) {
   const r = await lookup;
   if (!allParcels().includes(p)) return; // 그 사이 다른 위치를 골랐거나 삭제됨
   if (r && !p.saved) {
-    const same = state.saved.find((s) => s.pnu === r.pnu);
+    const same = listed().find((s) => s.pnu === r.pnu);
     if (same) {
       clearSelection();
       return select(same.id, false);
@@ -205,17 +213,20 @@ function parcelMeta(p) {
   return `${p.landUse} · ${fmt(p.area)}㎡`;
 }
 
+function parcelRow(p) {
+  return `<li>
+    <button type="button" class="field-row" id="row-${p.id}" data-id="${p.id}" aria-pressed="${p.id === state.id}">
+      <span class="fr-name">${p.shared ? '<span class="tag">공유</span>' : ""}${esc(p.label)}</span>
+      <span class="fr-meta">${esc(parcelMeta(p))}</span>
+    </button>
+    ${p.shared ? "" : `<button type="button" class="fr-remove" id="rm-${p.id}" data-remove="${p.id}" aria-label="${esc(p.label)} 삭제">×</button>`}
+  </li>`;
+}
+
 function renderList() {
-  $("#field-count").textContent = state.saved.length ? `${state.saved.length}필지` : "";
-  $("#field-list").innerHTML = state.saved.length
-    ? state.saved.map((p) => `<li>
-        <button type="button" class="field-row" id="row-${p.id}" data-id="${p.id}" aria-pressed="${p.id === state.id}">
-          <span class="fr-name">${esc(p.label)}</span>
-          <span class="fr-meta">${esc(parcelMeta(p))}</span>
-        </button>
-        <button type="button" class="fr-remove" id="rm-${p.id}" data-remove="${p.id}" aria-label="${esc(p.label)} 삭제">×</button>
-      </li>`).join("")
-    : '<li class="empty">주소를 검색하거나 지도를 눌러 필지를 고른 뒤 <b>내 필지에 추가</b>를 누르세요.</li>';
+  $("#field-count").textContent = listed().length ? `${listed().length}필지` : "";
+  $("#field-list").innerHTML = listed().map(parcelRow).join("")
+    + (state.saved.length ? "" : '<li class="empty">주소를 검색하거나 지도를 눌러 필지를 고른 뒤 <b>내 필지에 추가</b>를 누르세요.</li>');
 }
 
 // ---------------------------------------------------------------------------
@@ -245,10 +256,10 @@ function renderDetail() {
         <div><dt>PNU</dt><dd class="mono">${p.pnu}</dd></div>
       </dl>`
     : `<p class="d-empty">${p.status === "loading" ? "필지 조회 중…" : "이 위치에서 필지를 찾지 못했습니다 (도로·하천·바다 등)"}</p>`;
-  const action = p.status !== "ok" ? ""
+  const action = p.status !== "ok" || p.shared ? ""
     : p.saved ? '<button type="button" class="btn btn-ghost" id="remove-field">내 필지에서 삭제</button>'
     : '<button type="button" class="btn" id="add-field">내 필지에 추가</button>';
-  const tag = p.saved ? "내 필지" : p.status === "ok" ? "선택 위치" : ""; // 필지가 없으면 제목이 이미 "선택 위치"
+  const tag = p.shared ? "공유 필지" : p.saved ? "내 필지" : p.status === "ok" ? "선택 위치" : ""; // 필지가 없으면 제목이 이미 "선택 위치"
   $("#detail").innerHTML = `
     <div class="d-head">
       <div class="d-title"><h2>${esc(p.label)}</h2>${tag ? `<span class="tag">${tag}</span>` : ""}</div>
@@ -267,4 +278,4 @@ function renderAll() {
 
 fitAll();
 renderAll();
-state.saved.forEach((p) => applyParcel(p, vworldParcelByPnu(p.pnu)));
+listed().forEach((p) => applyParcel(p, vworldParcelByPnu(p.pnu)));

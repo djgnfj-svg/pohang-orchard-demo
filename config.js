@@ -8,8 +8,15 @@ const VWORLD_KEY = "9D089910-1218-40D6-A39F-7CBD242DF2D1";
 // 공공데이터포털 중계(Cloudflare Worker, 저장소 worker/). 서비스키는 Worker 비밀값에만 있다.
 const PROXY_URL = "https://pohang-orchard-proxy.djgnfj89239272.workers.dev/";
 
+// 공유 필지 — 데모를 여는 모든 사람에게 보이는 필지 (삭제 불가, 처음 열면 첫 필지 선택).
+// PNU·주소·중심 좌표만 두고 경계·지목·면적은 열 때마다 VWorld에서 조회한다.
+const SHARED_PARCELS = [
+  { pnu: "4711331028101190000", address: "경상북도 포항시 북구 신광면 안덕리 119", lat: 36.15002, lon: 129.26915 },
+];
+
 const SRC = {
   parcel: "VWorld 연속지적도",
+  shared: "공유 필지",
   vworld: "VWorld 검색",
   naver: "네이버 지오코딩",
   osm: "OSM Nominatim",
