@@ -65,32 +65,48 @@ async function fetchCloud(rm) {
   return r.arrayBuffer();
 }
 
+// 3D 카드는 지도 칸 아래에 붙는다 (한 번에 하나). 닫으면 지도가 원래 크기로
+let card3d = null; // { rm, el, dispose }
+
+function closeRobot3D() {
+  if (!card3d) return;
+  card3d.dispose();
+  card3d.el.remove();
+  card3d = null;
+  $(".shell").classList.remove("has-3d");
+}
+
 async function openRobot3D(id) {
   const rm = ROBOT_MAPS.find((r) => r.id === id);
   if (!rm) return;
-  const dlg = document.createElement("dialog");
-  dlg.className = "r3d";
-  dlg.innerHTML = `
+  const scroll = (el) => el.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "nearest" });
+  if (card3d?.rm === rm) return scroll(card3d.el);
+  closeRobot3D();
+  const el = document.createElement("section");
+  el.className = "card-3d";
+  el.setAttribute("aria-label", "라이다 3D");
+  el.innerHTML = `
     <div class="r3d-head">
-      <h2>${esc(rm.title)} · 라이다 3D</h2>
+      <h2>라이다 3D · ${esc(rm.title)}</h2>
       <span class="r3d-status" role="status">불러오는 중…</span>
-      <button type="button" class="r3d-close" aria-label="닫기">×</button>
+      <button type="button" class="r3d-close" aria-label="3D 카드 닫기">×</button>
     </div>
     <div class="r3d-view"></div>
     <p class="r3d-hint">드래그 회전 · 휠 확대 · 오른쪽 드래그 이동 · <b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑</b> 작업 구역 · 흰 점 홈</p>`;
-  document.body.appendChild(dlg);
-  let dispose = () => {};
-  dlg.addEventListener("close", () => { dispose(); dlg.remove(); });
-  dlg.querySelector(".r3d-close").addEventListener("click", () => dlg.close());
-  dlg.showModal();
-  const status = dlg.querySelector(".r3d-status");
+  const card = { rm, el, dispose: () => {} };
+  card3d = card;
+  el.querySelector(".r3d-close").addEventListener("click", closeRobot3D);
+  $(".shell").appendChild(el);
+  $(".shell").classList.add("has-3d");
+  if (window.innerWidth <= 1180) scroll(el);
+  const status = el.querySelector(".r3d-status");
   try {
     const [buf] = await Promise.all([cached(`cloud:${rm.id}`, 24 * 60, () => fetchCloud(rm)), loadThree()]);
-    if (!dlg.open) return; // 불러오는 사이 닫음
-    dispose = mountCloud(dlg.querySelector(".r3d-view"), rm, buf);
+    if (card3d !== card) return; // 불러오는 사이 닫음
+    card.dispose = mountCloud(el.querySelector(".r3d-view"), rm, buf);
     status.textContent = `${fmt(rm.cloud.count)}점 표시 · 원본 ${fmt(rm.lidar.points)}점`;
   } catch (e) {
-    status.textContent = `불러오지 못했습니다 · ${e.message}`;
+    if (card3d === card) status.textContent = `불러오지 못했습니다 · ${e.message}`;
   }
 }
 

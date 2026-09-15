@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // 지도 어댑터 — 기본은 Leaflet + VWorld(위성·일반·지적도). ?map=naver면 네이버 지도.
-// app.js는 이 인터페이스만 사용: addField / updateField / removeField / fit / flyTo / onClick / setBase / toggleCadastral / setRobotMap
+// app.js는 이 인터페이스만 사용: addField / updateField / removeField / fit / flyTo / onClick / resize / setBase / toggleCadastral / setRobotMap
 // 필지 경계는 VWorld 연속지적도에서 받아 p.rings에 채운 것만 그린다 (아직 없으면 핀만)
 // ---------------------------------------------------------------------------
 const PARCEL_HEX = "#72b9bf";
@@ -81,6 +81,7 @@ function NaverView(el) {
     onClick(cb) {
       nm.Event.addListener(map, "click", (e) => { if (!suppressMapClick) cb(e.coord.lat(), e.coord.lng()); });
     },
+    resize() { map.setSize(new nm.Size(el.clientWidth, el.clientHeight)); },
     setRobotMap(rm, show) {
       if (!robot[rm.id]) {
         const { lines, home } = robotRoute(rm);
@@ -191,6 +192,7 @@ function LeafletView(el) {
       else map.flyTo([lat, lon], zoom, { duration: 0.8 });
     },
     onClick(cb) { map.on("click", (e) => cb(e.latlng.lat, e.latlng.lng)); },
+    resize() { map.invalidateSize(); },
     setRobotMap(rm, show) {
       if (!robot[rm.id]) {
         const { lines, home } = robotRoute(rm);

@@ -109,6 +109,8 @@ function mountParcels() {
   renderTools();
 }
 mountParcels();
+// 3D 카드를 열고 닫는 등 지도 칸 크기가 바뀌면 지도를 다시 맞춤
+new ResizeObserver(() => mapView.resize()).observe($(".map-wrap"));
 
 // 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) Leaflet + VWorld로 전환
 function fallbackToLeaflet(message) {
