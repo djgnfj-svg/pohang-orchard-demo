@@ -226,25 +226,17 @@ $("#detail").addEventListener("click", (ev) => {
   else if (ev.target.closest("#remove-field")) removeSaved(state.id);
 });
 
-function pendingBlock() {
-  return `<div class="d-pending">
-    <h3>연결 예정 데이터</h3>
-    <ul>${PENDING_SOURCES.map((s) => `<li>${esc(s)}</li>`).join("")}</ul>
-    <p>공공데이터포털 활용 승인 완료 · 키를 연결하면 이 필지 기준으로 표시합니다</p>
-  </div>`;
-}
-
 function renderDetail() {
   const p = current();
   if (!p) {
     $("#detail").innerHTML = `
       <div class="d-head">
         <h2>필지를 선택하세요</h2>
-        <p class="d-empty">주소·지번을 검색하거나 지도를 누르면 그 자리의 필지 정보를 보여줍니다.</p>
-      </div>
-      ${pendingBlock()}`;
+        <p class="d-empty">주소·지번을 검색하거나 지도를 누르면 그 자리의 필지 정보와 기상청 날씨·예보·특보, 팜맵 토양·병해충 자료를 보여줍니다.</p>
+      </div>`;
     return;
   }
+  ensurePublicData(p);
   const body = p.status === "ok"
     ? `<dl class="d-facts">
         <div><dt>지목</dt><dd>${esc(p.landUse)}</dd></div>
@@ -264,7 +256,7 @@ function renderDetail() {
       ${body}
       <div class="d-actions">${action}${p.status === "ok" ? src("parcel") : ""}</div>
     </div>
-    ${pendingBlock()}`;
+    ${renderPublicData(p)}`;
 }
 
 function renderAll() {
