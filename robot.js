@@ -34,7 +34,7 @@ function renderRobotMap(p) {
     <p class="d-note">지도 색은 라이다로 잰 지면 위 높이(나무 열) · <b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑 점선</b> 작업 구역 · 홈 노드 ${route.home}</p>
     <p class="d-note">라이다 맵 위치는 주행 경로(UTM 52N 좌표)가 나무 열 사이를 지나도록 맞춘 것</p>
     <div class="d-actions">
-      <button type="button" class="btn" data-robot-3d="${esc(rm.id)}">3D로 보기</button>
+      <button type="button" class="btn" data-robot3d="${esc(rm.id)}">3D로 보기</button>
       <small>${fmt(cloud.count)}점(${cloud.voxel}m 간격) · ${((cloud.count * 7) / 1e6).toFixed(1)}MB</small>
     </div>
   </div>`;

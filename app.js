@@ -244,7 +244,7 @@ function renderList() {
 // 필지 상세
 // ---------------------------------------------------------------------------
 $("#detail").addEventListener("click", (ev) => {
-  const robot3d = ev.target.closest("[data-robot-3d]");
+  const robot3d = ev.target.closest("[data-robot3d]");
   if (robot3d) openRobot3D(robot3d.dataset.robot3d);
   else if (ev.target.closest("#add-field")) saveSelection();
   else if (ev.target.closest("#remove-field")) removeSaved(state.id);
