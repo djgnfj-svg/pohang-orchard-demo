@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // 주소 검색 · 지도 클릭 → 그 위치의 필지 데이터를 한 화면에 모아보기
-// 지오코딩 순서: 등록 농지 이름/주소 → Flask /api/geocode (VWorld 키 있을 때) → OSM Nominatim
+// 지오코딩 순서: 등록 농지 이름/주소 → 네이버 Geocoding → Flask /api/geocode (VWorld 키 있을 때) → OSM Nominatim
 // 위치 이후의 필지 속성(면적·토양·기상 보정)은 좌표 기반 목업 — 키 연동 후 실제 API로 교체
 // ---------------------------------------------------------------------------
 const searchForm = $("#search-form");
@@ -66,13 +66,15 @@ async function geocode(q) {
   FIELDS.filter((f) => !f.temp && (f.name.replace(/\s+/g, "").includes(key) || f.address.replace(/\s+/g, "").includes(key)))
     .forEach((f) => out.push({ label: f.name, sub: f.address, lat: f.lat, lon: f.lon, fieldId: f.id, source: "registered" }));
 
-  try {
+  if (!out.length) out.push(...(await naverGeocode(q)));
+
+  if (!out.some((x) => x.source === "naver")) try {
     const r = await fetch(`../api/geocode?address=${encodeURIComponent(q)}`, { signal: AbortSignal.timeout(4000) });
     const j = r.ok ? await r.json() : null;
     if (j?.source === "vworld") out.push({ label: q, sub: "VWorld 지오코딩 결과", lat: j.lat, lon: j.lon, source: "vworld" });
   } catch { /* 정적 배포(GitHub Pages)나 파일로 열었을 때는 서버 없음 */ }
 
-  if (!out.some((x) => x.source === "vworld")) {
+  if (!out.some((x) => x.source === "vworld" || x.source === "naver")) {
     try {
       const { rows, used } = await nominatimSearch(q);
       rows.forEach((x) => {
@@ -85,7 +87,41 @@ async function geocode(q) {
   return out;
 }
 
+// 네이버 지도 Geocoding (Client ID에 Geocoding API가 켜져 있을 때만 동작, 아니면 빈 결과)
+function naverService() {
+  return mapView.kind === "naver" ? window.naver?.maps?.Service : null;
+}
+function naverGeocode(q) {
+  const S = naverService();
+  if (!S) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve([]), 5000);
+    S.geocode({ query: q }, (status, res) => {
+      clearTimeout(timer);
+      if (status !== S.Status.OK) return resolve([]);
+      resolve((res?.v2?.addresses ?? []).map((a) => ({
+        label: a.jibunAddress || a.roadAddress, sub: a.roadAddress || "", address: a.jibunAddress || a.roadAddress,
+        lat: +a.y, lon: +a.x, source: "naver",
+      })));
+    });
+  });
+}
+function naverReverse(lat, lon) {
+  const S = naverService();
+  if (!S) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 5000);
+    S.reverseGeocode({ coords: new naver.maps.LatLng(lat, lon), orders: "addr,roadaddr" }, (status, res) => {
+      clearTimeout(timer);
+      const a = status === S.Status.OK ? res?.v2?.address : null;
+      resolve(a ? a.jibunAddress || a.roadAddress || null : null);
+    });
+  });
+}
+
 async function reverseGeocode(lat, lon) {
+  const naverAddr = await naverReverse(lat, lon);
+  if (naverAddr) return naverAddr;
   try {
     const url = "https://nominatim.openstreetmap.org/reverse?" + new URLSearchParams({
       lat: lat.toFixed(6), lon: lon.toFixed(6), format: "jsonv2", zoom: "17", "accept-language": "ko",
@@ -187,8 +223,7 @@ searchInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Escape") closeResults();
 });
 
-map.on("click", async (ev) => {
-  const { lat, lng } = ev.latlng;
+onMapClick(async (lat, lng) => {
   const f = goTo({ lat, lon: lng, label: "지도 선택 위치", sub: `지도 선택 위치 (${lat.toFixed(5)}, ${lng.toFixed(5)})`, source: "click" });
   if (!f) return;
   const addr = await reverseGeocode(lat, lng);

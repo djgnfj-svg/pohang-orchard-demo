@@ -92,106 +92,97 @@ function renderList() {
 }
 
 // ---------------------------------------------------------------------------
-// 지도 — 필지 폴리곤은 목업 (실서비스: VWorld 연속지적도 / 팜맵 경계)
+// 지도 — 네이버 지도 우선, 인증 실패·미로드 시 Leaflet(Esri 위성)로 대체 (mapview.js)
+// 필지 폴리곤은 목업 (실서비스: VWorld 연속지적도 / 팜맵 경계)
 // ---------------------------------------------------------------------------
-const map = L.map("map", { zoomControl: false });
-L.control.zoom({ position: "bottomright" }).addTo(map);
-
-const baseLayers = {
-  sat: L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    maxZoom: 19, attribution: "Esri World Imagery (데모용 · 실서비스 VWorld)",
-  }),
-  base: L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19, attribution: "© OpenStreetMap (데모용 · 실서비스 VWorld)",
-  }),
-};
+let mapView = createMapView($("#map"));
+const mapClickHandlers = [];
 let activeBase = "sat";
-baseLayers.sat.addTo(map);
+let cadastralOn = false;
 
-let tileFailed = false;
-Object.values(baseLayers).forEach((layer) =>
-  layer.on("tileerror", () => {
-    if (tileFailed) return;
-    tileFailed = true;
-    $("#map").classList.add("no-tiles");
-    $("#map-note").hidden = false;
-  })
-);
+function showMapNote(text) {
+  const note = $("#map-note");
+  note.textContent = text;
+  note.hidden = false;
+}
 
 const tools = document.createElement("div");
 tools.className = "map-tools";
-tools.innerHTML = `
-  <button type="button" id="map-sat" data-base="sat" aria-pressed="true">위성</button>
-  <button type="button" id="map-base" data-base="base" aria-pressed="false">일반</button>
-  <button type="button" id="map-all">전체 보기</button>`;
 $(".map-wrap").appendChild(tools);
+function renderTools() {
+  const btn = (id, label, pressed, attrs = "") => `<button type="button" id="${id}" ${attrs} aria-pressed="${pressed}">${label}</button>`;
+  tools.innerHTML = [
+    btn("map-sat", "위성", activeBase === "sat", 'data-base="sat"'),
+    btn("map-base", "일반", activeBase === "base", 'data-base="base"'),
+    mapView.bases.includes("cadastral") ? btn("map-cad", "지적도", cadastralOn) : "",
+    '<button type="button" id="map-all">전체 보기</button>',
+  ].join("");
+}
 tools.addEventListener("click", (ev) => {
   const b = ev.target.closest("button");
   if (!b) return;
   if (b.id === "map-all") return fitAll();
-  if (b.dataset.base === activeBase) return;
-  map.removeLayer(baseLayers[activeBase]);
+  if (b.id === "map-cad") {
+    cadastralOn = !cadastralOn;
+    mapView.toggleCadastral(cadastralOn);
+    return renderTools();
+  }
   activeBase = b.dataset.base;
-  baseLayers[activeBase].addTo(map).bringToBack();
-  tools.querySelectorAll("[data-base]").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.base === activeBase)));
+  mapView.setBase(activeBase);
+  renderTools();
 });
 
-// 필지 중심 기준 격자 배치로 등록 필지 + 주변 필지(미등록)를 그림
-function parcel(f, i, j, widthScale = 1) {
-  const side = Math.sqrt(f.area);
-  const w = side * 0.62, hh = side * 0.4, gap = 6, rot = 0.24;
-  const cx = i * (2 * w + gap), cy = j * (2 * hh + gap);
-  const mLat = 1 / 111320, mLon = 1 / (111320 * Math.cos((f.lat * Math.PI) / 180));
-  return [[-w, -hh], [w, -hh], [w, hh], [-w, hh]].map(([x, y], k) => {
-    const X = cx + x * widthScale + Math.sin((i * 3 + j * 5 + k) * 1.3) * side * 0.04;
-    const Y = cy + y + Math.cos((i * 7 + j * 2 + k) * 1.1) * side * 0.03;
-    const east = X * Math.cos(rot) - Y * Math.sin(rot);
-    const north = X * Math.sin(rot) + Y * Math.cos(rot);
-    return [f.lat + north * mLat, f.lon + east * mLon];
-  });
+function onMapClick(cb) {
+  mapClickHandlers.push(cb);
+  mapView.onClick(cb);
 }
+function addFieldLayers(f) { mapView.addField(f, select); }
+function removeFieldLayers(id) { mapView.removeField(id); }
 
-const fieldLayers = {};
-function addFieldLayers(f) {
-  const group = L.layerGroup().addTo(map);
-  for (let i = -2; i <= 2; i++) {
-    for (let j = -2; j <= 2; j++) {
-      if (!i && !j) continue;
-      L.polygon(parcel(f, i, j, 0.8 + (Math.abs(i * 3 + j) % 3) * 0.08), { className: "nb-parcel", interactive: false }).addTo(group);
-    }
-  }
-  const poly = L.polygon(parcel(f, 0, 0), { className: "field-parcel", bubblingMouseEvents: false }).addTo(group);
-  poly.on("click", () => select(f.id, false));
-  const pin = L.marker([f.lat, f.lon], { keyboard: false }).addTo(group);
-  pin.on("click", () => select(f.id, true));
-  fieldLayers[f.id] = { group, poly, pin };
+function mountFields() {
+  FIELDS.forEach(addFieldLayers);
+  renderTools();
 }
-function removeFieldLayers(id) {
-  fieldLayers[id]?.group.remove();
-  delete fieldLayers[id];
+mountFields();
+
+// 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) 대체 지도(Leaflet + Esri 위성)로 전환
+function fallbackToLeaflet(message) {
+  if (mapView.kind !== "naver") return;
+  mapView.destroy();
+  // 네이버 스크립트가 실패 후에도 기존 요소를 건드리므로 새 요소로 교체
+  const fresh = document.createElement("div");
+  fresh.id = "map";
+  fresh.setAttribute("aria-label", "필지 지도");
+  $("#map").replaceWith(fresh);
+  mapView = LeafletView(fresh);
+  mapClickHandlers.forEach((cb) => mapView.onClick(cb));
+  activeBase = "sat";
+  cadastralOn = false;
+  mountFields();
+  renderMap();
+  fitAll();
+  showMapNote(message);
 }
-FIELDS.forEach(addFieldLayers);
+window.navermap_authFailure = () =>
+  fallbackToLeaflet("네이버 지도 인증 실패 — 이 주소를 Client ID의 Web 서비스 URL에 등록하면 네이버 지도로 표시됩니다");
+
+// 인증 오류(500 등)는 authFailure가 호출되지 않으므로, 5초 안에 init이 안 오면 전환
+if (mapView.kind === "naver") {
+  let naverReady = false;
+  naver.maps.Event.once(mapView.raw, "init", () => { naverReady = true; });
+  setTimeout(() => {
+    if (!naverReady && !mapView.raw?.isReady) fallbackToLeaflet("네이버 지도를 불러오지 못해 대체 지도로 표시합니다");
+  }, 5000);
+}
 
 function fitAll() {
-  map.fitBounds(L.latLngBounds(FIELDS.map((f) => [f.lat, f.lon])).pad(0.2), { animate: !reduceMotion });
+  mapView.fit(FIELDS.map((f) => [f.lat, f.lon]));
 }
 
 function renderMap() {
   FIELDS.forEach((f) => {
     const v = evalAt(f, state.t)[state.index];
-    const sel = f.id === state.id ? " is-selected" : "";
-    const { poly, pin } = fieldLayers[f.id];
-    const el = poly.getElement();
-    if (el) {
-      el.setAttribute("class", `leaflet-interactive field-parcel${sel}`);
-      el.setAttribute("data-s", v.status.key);
-    }
-    if (sel) poly.bringToFront();
-    pin.setIcon(L.divIcon({
-      className: "pin-wrap", iconSize: null,
-      html: `<div class="pin${sel}" data-s="${v.status.key}"><b>${v.score ?? "–"}</b><span>${esc(f.name)}</span></div>`,
-    }));
-    pin.setZIndexOffset(sel ? 1000 : 0);
+    mapView.updateField(f, v.status.key, v.score, f.id === state.id);
   });
 }
 
@@ -200,8 +191,7 @@ function select(id, fly) {
   renderAll();
   if (fly) {
     const f = currentField();
-    if (reduceMotion) map.setView([f.lat, f.lon], 17);
-    else map.flyTo([f.lat, f.lon], 17, { duration: 0.8 });
+    mapView.flyTo(f.lat, f.lon, 17);
   }
 }
 

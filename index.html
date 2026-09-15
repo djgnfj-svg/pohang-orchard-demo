@@ -57,9 +57,16 @@
   </section>
 </div>
 
+<!-- 네이버 지도는 ?map=naver 일 때만 로드. Client ID는 도메인 제한 공개키 — 콘솔 Web 서비스 URL에 등록된 주소에서만 동작 -->
+<script>
+  if (new URLSearchParams(location.search).get("map") === "naver") {
+    document.write('<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=v33u514rqa&submodules=geocoder"><\/script>');
+  }
+</script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="data.js"></script>
 <script src="engine.js"></script>
 <script src="ui.js"></script>
+<script src="mapview.js"></script>
 <script src="app.js"></script>
 <script src="search.js"></script>
