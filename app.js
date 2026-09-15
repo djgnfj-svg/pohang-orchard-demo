@@ -160,7 +160,7 @@ async function applyParcel(p, lookup) {
   if (!allParcels().includes(p)) return; // 그 사이 다른 위치를 골랐거나 삭제됨
   if (r && !p.saved) {
     const same = listed().find((s) => s.pnu === r.pnu);
-    if (same) {
+    if (same && same !== p) { // 선택 위치가 이미 목록에 있는 필지면 그 필지로 (공유 필지 자기 자신은 제외)
       clearSelection();
       return select(same.id, false);
     }

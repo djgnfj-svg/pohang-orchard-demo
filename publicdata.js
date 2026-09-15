@@ -39,8 +39,8 @@ function kmaGrid(lat, lon) {
 }
 
 // Worker 호출 → item 배열. 자료 없음(NODATA)은 빈 배열, 그 밖의 오류는 예외
-async function pdCall(path, params) {
-  const r = await fetch(PROXY_URL + path + "?" + new URLSearchParams(params), { signal: AbortSignal.timeout(15000) });
+async function pdCall(path, params, timeoutMs = 15000) {
+  const r = await fetch(PROXY_URL + path + "?" + new URLSearchParams(params), { signal: AbortSignal.timeout(timeoutMs) });
   const text = await r.text();
   if (/^\s*</.test(text)) {
     const msg = text.match(/<(?:resultMsg|returnAuthMsg)>([^<]*)</)?.[1] || `응답 오류 (${r.status})`;
@@ -229,7 +229,7 @@ function loadWarn(region) {
 // 팜맵 토양검정 (PNU → 그 PNU가 속한 팜맵 필지의 시료)
 function loadSoil(pnu) {
   return cached(`soil:${pnu}`, 24 * 60, async () => {
-    const rows = await pdCall("B552895/rest/farmmap/getFarmmapSoilAnalysisService/getPnuBasedSoilAnalsInfo", { type: "json", numOfRows: "20", pageNo: "1", pnuCode: pnu });
+    const rows = await pdCall("B552895/rest/farmmap/getFarmmapSoilAnalysisService/getPnuBasedSoilAnalsInfo", { type: "json", numOfRows: "20", pageNo: "1", pnuCode: pnu }, 30000); // 팜맵은 응답이 느림
     return rows
       .sort((a, b) => String(b.stDe).localeCompare(String(a.stDe)))
       .slice(0, 3)
@@ -243,7 +243,7 @@ function loadPest(pnu) {
   const prev = ymdShift(`${now.ym}01`, -1).slice(0, 6);
   return cached(`pest:${pnu}:${now.ym}`, 6 * 60, async () => {
     for (const month of [now.ym, prev]) {
-      const rows = await pdCall("B552895/rest/farmmap/getFarmmapDbyhsService/getPnuBasedMonthDbyhsInfo", { type: "json", numOfRows: "100", pageNo: "1", pnuCode: pnu, month, yearCount: "1" });
+      const rows = await pdCall("B552895/rest/farmmap/getFarmmapDbyhsService/getPnuBasedMonthDbyhsInfo", { type: "json", numOfRows: "50", pageNo: "1", pnuCode: pnu, month, yearCount: "1" }, 30000);
       if (!rows.length) continue;
       const latest = rows.map((r) => String(r.inptDe)).sort().at(-1);
       const seen = new Set();
