@@ -256,9 +256,10 @@ function renderDetail() {
   const action = p.status !== "ok" ? ""
     : p.saved ? '<button type="button" class="btn btn-ghost" id="remove-field">내 필지에서 삭제</button>'
     : '<button type="button" class="btn" id="add-field">내 필지에 추가</button>';
+  const tag = p.saved ? "내 필지" : p.status === "ok" ? "선택 위치" : ""; // 필지가 없으면 제목이 이미 "선택 위치"
   $("#detail").innerHTML = `
     <div class="d-head">
-      <div class="d-title"><h2>${esc(p.label)}</h2><span class="tag">${p.saved ? "내 필지" : "선택 위치"}</span></div>
+      <div class="d-title"><h2>${esc(p.label)}</h2>${tag ? `<span class="tag">${tag}</span>` : ""}</div>
       <div class="d-addr">${esc(p.address || "주소 확인 중…")}</div>
       ${body}
       <div class="d-actions">${action}${p.status === "ok" ? src("parcel") : ""}</div>
