@@ -172,7 +172,7 @@ function LeafletView(el) {
 }
 
 function createMapView(el) {
-  if (new URLSearchParams(location.search).get("map") === "naver" && window.naver?.maps?.Map) {
+  if (window.USE_NAVER_MAP && window.naver?.maps?.Map) {
     try {
       return NaverView(el);
     } catch (e) {

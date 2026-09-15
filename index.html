@@ -6,8 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="vendor/leaflet.css">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="vendor/leaflet.css?v=20260915d">
+<link rel="stylesheet" href="style.css?v=20260915d">
 
 <div class="shell">
   <header class="topbar">
@@ -57,16 +57,19 @@
   </section>
 </div>
 
-<!-- 네이버 지도는 ?map=naver 일 때만 로드. Client ID는 도메인 제한 공개키 — 콘솔 Web 서비스 URL에 등록된 주소에서만 동작 -->
+<!-- 네이버 지도 Client ID는 도메인 제한 공개키 — 콘솔 Web 서비스 URL에 등록된 주소(현재 djgnfj-svg.github.io)에서만 인증됨.
+     등록 도메인에서는 기본 사용, 그 외에는 ?map=naver로 강제, ?map=leaflet이면 대체 지도 -->
 <script>
-  if (new URLSearchParams(location.search).get("map") === "naver") {
+  window.MAP_PARAM = new URLSearchParams(location.search).get("map");
+  window.USE_NAVER_MAP = MAP_PARAM === "naver" || (location.hostname === "djgnfj-svg.github.io" && MAP_PARAM !== "leaflet");
+  if (USE_NAVER_MAP) {
     document.write('<script src="https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=v33u514rqa&submodules=geocoder"><\/script>');
   }
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="data.js"></script>
-<script src="engine.js"></script>
-<script src="ui.js"></script>
-<script src="mapview.js"></script>
-<script src="app.js"></script>
-<script src="search.js"></script>
+<script src="data.js?v=20260915d"></script>
+<script src="engine.js?v=20260915d"></script>
+<script src="ui.js?v=20260915d"></script>
+<script src="mapview.js?v=20260915d"></script>
+<script src="app.js?v=20260915d"></script>
+<script src="search.js?v=20260915d"></script>

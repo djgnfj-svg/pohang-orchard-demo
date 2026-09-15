@@ -498,6 +498,16 @@ table.tbl { border-collapse: collapse; width: 100%; font-size: 13px; }
 }
 .leaflet-container.leaflet-grab { cursor: crosshair; }
 
+/* 위치 종합 판정 */
+.verdict { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 14px; align-items: center; margin-bottom: 12px; }
+.verdict-score { font-size: 36px; font-weight: 500; line-height: 1; color: var(--s-ink); }
+.verdict p { margin: 4px 0 0; font-size: 13px; color: var(--ink-2); }
+.sum-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px; }
+.sum-list li { display: grid; grid-template-columns: 68px 50px minmax(0, 1fr); gap: 8px; align-items: baseline; font-size: 12.5px; }
+.sum-label { font-weight: 600; }
+.sum-text { color: var(--ink-2); }
+.sum-list .pill { justify-self: start; }
+
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }

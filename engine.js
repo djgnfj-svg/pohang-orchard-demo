@@ -212,3 +212,49 @@ function recommend(field, rows, t, e) {
   if (e.soil.length) recs.push({ tone: "neutral", text: `토양: ${e.soil[0]}` });
   return recs;
 }
+
+// ---------------------------------------------------------------------------
+// 위치 종합 판정 — 검색·선택한 위치가 지금 괜찮은지 항목별로 모아 한 줄씩 요약
+// ---------------------------------------------------------------------------
+function siteSummary(field, rows, t, e) {
+  const next24 = slice(rows, t, t + 24);
+  const maxPop = Math.max(...next24.map((x) => x.pop));
+  const maxWind = Math.max(...next24.map((x) => x.wind));
+  const rain24 = sum(next24, (x) => x.pcp);
+  const st = (score) => (score >= 70 ? "good" : score >= 40 ? "warning" : "critical");
+  const items = [];
+
+  const wxScore = clamp(100 - (maxPop >= 60 ? 40 : maxPop >= 30 ? 15 : 0) - (maxWind > 6 ? 35 : maxWind > 4 ? 15 : 0));
+  items.push({ key: "weather", label: "기상 24시간", score: wxScore, src: "fcst",
+    text: `강수확률 최대 ${maxPop}% · 강수 ${rain24.toFixed(1)}mm · 풍속 최대 ${maxWind}m/s` });
+
+  const warn = ALERTS.find((a) => a.status === "warning");
+  const alertSoon = slice(rows, t, t + 48).some((x) => alertActive(x.h));
+  const alertScore = alertActive(t) ? 20 : alertSoon ? 55 : 100;
+  items.push({ key: "alert", label: "기상특보", score: alertScore, src: "warn",
+    text: alertActive(t) ? `${warn.kind} ${warn.level} 발효 중` : alertSoon ? `${warn.kind} ${warn.level} · ${warn.when}` : "48시간 내 특보 없음" });
+
+  const top = e.pests[0];
+  items.push({ key: "pest", label: "병해충", score: top ? 100 - top.score : 100, src: "pest",
+    text: top ? `${top.name} 위험 ${top.score} (${top.why})` : "주요 병해충 정보 없음" });
+
+  items.push({ key: "soil", label: "토양", score: clamp(100 - e.soil.length * 22), src: "soil",
+    text: e.soil.length ? `${e.soil.length}개 항목 조정 필요 · ${e.soil[0]}` : "검정 항목 모두 적정" });
+
+  items.push({ key: "water", label: "물 관리", score: clamp(100 - Math.max(0, e.irrigation.score - 30)), src: "reservoir",
+    text: `관수 필요도 ${e.irrigation.score} · ${RESERVOIR.name} 저수율 ${RESERVOIR.rate}%` });
+
+  const work = [["수확", e.harvest.score ?? -1], ["방제", e.spray.score], ["제초", e.weed.score]].sort((a, b) => b[1] - a[1])[0];
+  items.push({ key: "work", label: "작업 여건", score: work[1], src: "engine",
+    text: `지금 가장 적합한 작업: ${work[0]} ${work[1]}점 · 로봇작업 ${e.robot.score}점` });
+
+  items.forEach((x) => { x.status = st(x.score); });
+  const weights = { weather: 0.25, alert: 0.15, pest: 0.2, soil: 0.1, water: 0.1, work: 0.2 };
+  const total = clamp(sum(items, (x) => x.score * weights[x.key]));
+  const worst = items.reduce((a, b) => (b.score < a.score ? b : a));
+  const verdict = total >= 70 ? { key: "good", label: "좋음" } : total >= 45 ? { key: "warning", label: "보통" } : { key: "critical", label: "주의" };
+  const headline = verdict.key === "good"
+    ? `지금 작업하기 좋은 여건입니다${worst.score < 70 ? ` · ${worst.label}만 확인하세요` : ""}`
+    : verdict.key === "warning" ? `${worst.label} 때문에 여건이 보통입니다` : `${worst.label} 문제로 작업을 미루는 게 좋습니다`;
+  return { total, verdict, headline, items };
+}

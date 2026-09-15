@@ -252,12 +252,28 @@ function detailHead(f) {
     </div>`;
 }
 
+function summaryBlock(f, e) {
+  const s = siteSummary(f, hourlyOf(f), state.t, e);
+  const word = { good: "양호", warning: "보통", critical: "주의" };
+  return `<div class="d-summary" data-s="${s.verdict.key}">
+    <div class="d-sec-head"><h3>${f.temp ? "이 위치 종합" : "필지 종합"} · ${hourLabel(state.t)}</h3>${src("engine")}</div>
+    <div class="verdict">
+      <span class="verdict-score mono">${s.total}</span>
+      <div>${pill(s.verdict)}<p>${esc(s.headline)}</p></div>
+    </div>
+    <ul class="sum-list">${s.items.map((x) => `<li title="출처: ${esc(SRC[x.src])}">
+      <span class="sum-label">${x.label}</span>${pill({ key: x.status, label: word[x.status] })}<span class="sum-text">${esc(x.text)}</span>
+    </li>`).join("")}</ul>
+  </div>`;
+}
+
 function renderDetail() {
   const f = currentField();
   const r = hourlyOf(f)[state.t];
   const e = evalAt(f, state.t);
   $("#detail").innerHTML = `
     <div class="d-head">${detailHead(f)}</div>
+    ${summaryBlock(f, e)}
     <div class="d-weather">
       <div class="d-sec-head"><h3>${hourLabel(state.t)} 기상</h3>${src(state.t === DEFAULT_HOUR ? "ncst" : "fcst")}</div>
       <div class="wx">

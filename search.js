@@ -177,7 +177,15 @@ function goTo(result) {
   FIELDS.unshift(f);
   addFieldLayers(f);
   select(f.id, true);
+  showDetailTop();
   return f;
+}
+
+// 검색 후 종합 판정이 바로 보이도록 상세 패널을 맨 위로 (좁은 화면에서는 패널까지 스크롤)
+function showDetailTop() {
+  const d = $("#detail");
+  d.scrollTop = 0;
+  if (window.innerWidth <= 1180) d.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
 }
 
 function closeResults() {
