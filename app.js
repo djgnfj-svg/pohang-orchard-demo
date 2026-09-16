@@ -45,18 +45,23 @@ const current = () => allParcels().find((p) => p.id === state.id) ?? null;
 const src = (key) => `<span class="src" title="데이터 출처">${esc(SRC[key])}</span>`;
 
 // ---------------------------------------------------------------------------
-// 지도 — 기본 Leaflet + VWorld, ?map=naver면 네이버 지도(실패 시 Leaflet으로 대체) (mapview.js)
+// 지도 — 기본 Leaflet + VWorld. 지도 도구의 "네이버" 버튼으로 같은 위치를 네이버 지도로 바꿔 본다 (mapview.js)
 // ---------------------------------------------------------------------------
-let mapView = createMapView($("#map"));
+let mapView = createMapView($("#map"), "vworld");
 const mapClickHandlers = [];
 let activeBase = "sat";
 let cadastralOn = true; // 지적도 기본 표시 (확대했을 때만 보임)
 const robotShow = { lidar: true, route: true }; // 로봇 라이다 영상 · 주행 경로 (robot.js)
+const hasNaverKey = typeof NAVER_CLIENT_ID === "string" && !!NAVER_CLIENT_ID;
+let switchingMap = false; // 네이버 스크립트를 불러오는 중
 
 function showMapNote(text) {
   const note = $("#map-note");
   note.textContent = text;
   note.hidden = false;
+}
+function hideMapNote() {
+  $("#map-note").hidden = true;
 }
 
 const tools = document.createElement("div");
@@ -69,6 +74,7 @@ function renderTools() {
     btn("map-base", "일반", activeBase === "base", 'data-base="base"'),
     mapView.bases.includes("cadastral") ? btn("map-cad", "지적도", cadastralOn) : "",
     ROBOT_MAPS.length ? btn("map-lidar", "라이다", robotShow.lidar, 'data-robot="lidar"') + btn("map-route", "경로", robotShow.route, 'data-robot="route"') : "",
+    hasNaverKey ? btn("map-naver", switchingMap ? "여는 중…" : "네이버", mapView.kind === "naver", `data-map="1"${switchingMap ? " disabled" : ""}`) : "",
     '<button type="button" id="map-all">전체 보기</button>',
   ].join("");
 }
@@ -76,6 +82,7 @@ tools.addEventListener("click", (ev) => {
   const b = ev.target.closest("button");
   if (!b) return;
   if (b.id === "map-all") return fitAll();
+  if (b.dataset.map) return switchMap(mapView.kind === "naver" ? "vworld" : "naver");
   if (b.id === "map-cad") {
     cadastralOn = !cadastralOn;
     mapView.toggleCadastral(cadastralOn);
@@ -112,34 +119,71 @@ mountParcels();
 // 3D 카드를 열고 닫는 등 지도 칸 크기가 바뀌면 지도를 다시 맞춤
 new ResizeObserver(() => mapView.resize()).observe($(".map-wrap"));
 
-// 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) Leaflet + VWorld로 전환
-function fallbackToLeaflet(message) {
-  if (mapView.kind !== "naver") return;
+// ---------------------------------------------------------------------------
+// VWorld ↔ 네이버 전환 — 보던 자리·줌을 그대로 넘겨 두 지도를 비교한다.
+// 네이버는 Client ID에 등록된 주소(djgnfj-svg.github.io)에서만 인증되므로 localhost에서는 실패하고 되돌아온다.
+// ---------------------------------------------------------------------------
+function replaceMapView(kind, note) {
+  const start = mapView.view();
   mapView.destroy();
   // 네이버 스크립트가 실패 후에도 기존 요소를 건드리므로 새 요소로 교체
   const fresh = document.createElement("div");
   fresh.id = "map";
   fresh.setAttribute("aria-label", "필지 지도");
   $("#map").replaceWith(fresh);
-  mapView = LeafletView(fresh);
+  mapView = createMapView(fresh, kind, start);
   mapClickHandlers.forEach((cb) => mapView.onClick(cb));
-  activeBase = "sat";
-  cadastralOn = true;
+  mapView.setBase(activeBase);
   mountParcels();
   renderMap();
-  fitAll();
-  showMapNote(message);
+  if (!start) fitAll();
+  if (note) showMapNote(note);
+  else hideMapNote();
+  watchNaver();
 }
-window.navermap_authFailure = () =>
-  fallbackToLeaflet("네이버 지도 인증 실패 — 이 주소를 Client ID의 Web 서비스 URL에 등록하면 네이버 지도로 표시됩니다");
 
-// 인증 오류(500 등)는 authFailure가 호출되지 않으므로, 5초 안에 init이 안 오면 전환
-if (mapView.kind === "naver") {
-  let naverReady = false;
-  naver.maps.Event.once(mapView.raw, "init", () => { naverReady = true; });
-  setTimeout(() => {
-    if (!naverReady && !mapView.raw?.isReady) fallbackToLeaflet("네이버 지도를 불러오지 못해 대체 지도로 표시합니다");
-  }, 5000);
+async function switchMap(kind) {
+  if (switchingMap || mapView.kind === kind) return;
+  switchingMap = true;
+  renderTools();
+  try {
+    if (kind === "naver") await loadNaverMaps();
+    replaceMapView(kind);
+  } catch (e) {
+    showMapNote(e.message);
+  } finally {
+    switchingMap = false;
+    renderTools();
+  }
+}
+
+// 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) Leaflet + VWorld로 되돌린다
+function fallbackToLeaflet(message) {
+  if (mapView.kind !== "naver") return;
+  replaceMapView("vworld", message);
+}
+window.navermap_authFailure = () => fallbackToLeaflet(NAVER_FAIL_NOTE);
+
+// 네이버 지도는 인증에 실패해도 authFailure를 부르지 않고 지도 칸에 안내 그림(auth_fail)만 깔 때가 있다.
+// 그래서 0.5초마다 그림을 확인하고, 5초 안에 init도 안 오면 되돌린다.
+const NAVER_FAIL_NOTE = "네이버 지도 인증 실패 — 이 주소를 Client ID의 Web 서비스 URL에 등록하면 네이버 지도로 표시됩니다";
+function watchNaver() {
+  if (mapView.kind !== "naver") return;
+  const opened = mapView;
+  const el = $("#map");
+  let ready = false;
+  naver.maps.Event.once(opened.raw, "init", () => { ready = true; });
+  let ticks = 0;
+  const timer = setInterval(() => {
+    if (mapView !== opened) return clearInterval(timer);
+    if (/auth_fail/.test(el.style.backgroundImage || "")) {
+      clearInterval(timer);
+      return fallbackToLeaflet(NAVER_FAIL_NOTE);
+    }
+    if (++ticks < 10) return; // 5초
+    clearInterval(timer);
+    if (!ready && !opened.raw?.isReady) fallbackToLeaflet("네이버 지도를 불러오지 못해 대체 지도로 표시합니다");
+  }, 500);
 }
 
 function fitAll() { // 로봇 맵이 있으면 라이다 범위까지 보이게
@@ -295,3 +339,4 @@ function renderAll() {
 fitAll();
 renderAll();
 listed().forEach((p) => applyParcel(p, vworldParcelByPnu(p.pnu)));
+if (MAP_PARAM === "naver") switchMap("naver"); // ?map=naver로 열면 네이버 지도로 시작

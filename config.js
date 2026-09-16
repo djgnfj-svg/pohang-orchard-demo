@@ -5,6 +5,10 @@
 // VWorld 인증키 — 지도 타일·지적도·검색을 브라우저에서 직접 호출하므로 페이지에 노출되는 키.
 const VWORLD_KEY = "9D089910-1218-40D6-A39F-7CBD242DF2D1";
 
+// 네이버 지도 Client ID — 지도를 브라우저에서 직접 부르므로 노출되는 키.
+// 콘솔의 Web 서비스 URL에 등록된 주소(djgnfj-svg.github.io)에서만 인증된다 → localhost에서는 항상 실패한다.
+const NAVER_CLIENT_ID = "v33u514rqa";
+
 // 공공데이터포털 중계(Cloudflare Worker, 저장소 worker/). 서비스키는 Worker 비밀값에만 있다.
 const PROXY_URL = "https://pohang-orchard-proxy.djgnfj89239272.workers.dev/";
 

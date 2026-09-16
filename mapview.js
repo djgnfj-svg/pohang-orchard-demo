@@ -1,6 +1,7 @@
 // ---------------------------------------------------------------------------
-// 지도 어댑터 — 기본은 Leaflet + VWorld(위성·일반·지적도). ?map=naver면 네이버 지도.
-// app.js는 이 인터페이스만 사용: addField / updateField / removeField / fit / flyTo / onClick / resize / setBase / toggleCadastral / setRobotMap
+// 지도 어댑터 — 기본은 Leaflet + VWorld(위성·일반·지적도), 지도 도구의 "네이버" 버튼을 누르면 네이버 지도.
+// app.js는 이 인터페이스만 사용: addField / updateField / removeField / fit / flyTo / view / onClick / resize / setBase / toggleCadastral / setRobotMap
+// 두 지도를 같은 자리에서 번갈아 보려고 view()로 중심·줌을 넘겨받아 시작한다 (app.js의 switchMap)
 // 필지 경계는 VWorld 연속지적도에서 받아 p.rings에 채운 것만 그린다 (아직 없으면 핀만)
 // ---------------------------------------------------------------------------
 const PARCEL_HEX = "#72b9bf";
@@ -19,12 +20,27 @@ function robotRoute(rm) {
 }
 const ROBOT_HOME_HTML = '<div class="pin-wrap"><div class="robot-home">홈</div></div>';
 
+// 네이버 지도 스크립트는 처음 누를 때만 불러온다 (안 쓰면 요청도 안 감)
+let naverLoading = null;
+function loadNaverMaps() {
+  naverLoading ??= new Promise((resolve, reject) => {
+    if (window.naver?.maps?.Map) return resolve();
+    if (typeof NAVER_CLIENT_ID !== "string" || !NAVER_CLIENT_ID) return reject(new Error("네이버 Client ID가 없습니다"));
+    const s = document.createElement("script");
+    s.src = `https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${encodeURIComponent(NAVER_CLIENT_ID)}&submodules=geocoder`;
+    s.onload = () => (window.naver?.maps?.Map ? resolve() : reject(new Error("네이버 지도를 불러오지 못했습니다")));
+    s.onerror = () => { s.remove(); naverLoading = null; reject(new Error("네이버 지도를 불러오지 못했습니다")); };
+    document.head.appendChild(s);
+  }).catch((e) => { naverLoading = null; throw e; });
+  return naverLoading;
+}
+
 // ---------------------------------------------------------------------------
-function NaverView(el) {
+function NaverView(el, start) {
   const nm = naver.maps;
   const map = new nm.Map(el, {
-    center: new nm.LatLng(...HOME.center),
-    zoom: HOME.zoom,
+    center: new nm.LatLng(...(start ? [start.lat, start.lon] : HOME.center)),
+    zoom: start?.zoom ?? HOME.zoom,
     mapTypeId: nm.MapTypeId.HYBRID,
     zoomControl: true,
     zoomControlOptions: { position: nm.Position.BOTTOM_RIGHT, style: nm.ZoomControlStyle.SMALL },
@@ -78,6 +94,10 @@ function NaverView(el) {
       if (reduceMotion) { map.setCenter(c); map.setZoom(zoom); }
       else map.morph(c, zoom, { duration: 700 });
     },
+    view() {
+      const c = map.getCenter();
+      return { lat: c.lat(), lon: c.lng(), zoom: map.getZoom() };
+    },
     onClick(cb) {
       nm.Event.addListener(map, "click", (e) => { if (!suppressMapClick) cb(e.coord.lat(), e.coord.lng()); });
     },
@@ -109,8 +129,9 @@ function NaverView(el) {
 // ---------------------------------------------------------------------------
 // VWorld WMTS 타일: /{layer}/{z}/{row}/{col} — Satellite(jpeg)·Hybrid(라벨)·Base, 줌 6~19
 // VWorld 키가 없으면 Esri 위성 / OSM으로 대체
-function LeafletView(el) {
+function LeafletView(el, start) {
   const map = L.map(el, { zoomControl: false, minZoom: 7, maxZoom: 19 });
+  if (start) map.setView([start.lat, start.lon], Math.min(19, Math.max(7, Math.round(start.zoom))));
   L.control.zoom({ position: "bottomright" }).addTo(map);
   const hasKey = typeof VWORLD_KEY === "string" && !!VWORLD_KEY;
   const vw = (layer, ext, zIndex) => L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/${layer}/{z}/{y}/{x}.${ext}`, {
@@ -191,6 +212,14 @@ function LeafletView(el) {
       if (reduceMotion) map.setView([lat, lon], zoom);
       else map.flyTo([lat, lon], zoom, { duration: 0.8 });
     },
+    view() { // 아직 위치가 정해지기 전이면 getCenter가 예외를 낸다
+      try {
+        const c = map.getCenter();
+        return { lat: c.lat, lon: c.lng, zoom: map.getZoom() };
+      } catch {
+        return null;
+      }
+    },
     onClick(cb) { map.on("click", (e) => cb(e.latlng.lat, e.latlng.lng)); },
     resize() { map.invalidateSize(); },
     setRobotMap(rm, show) {
@@ -216,13 +245,14 @@ function LeafletView(el) {
   };
 }
 
-function createMapView(el) {
-  if (window.USE_NAVER_MAP && window.naver?.maps?.Map) {
+// kind: "naver"면 네이버 지도(스크립트가 이미 올라와 있어야 함), 아니면 Leaflet + VWorld
+function createMapView(el, kind, start) {
+  if (kind === "naver" && window.naver?.maps?.Map) {
     try {
-      return NaverView(el);
+      return NaverView(el, start);
     } catch (e) {
       console.warn("네이버 지도 초기화 실패 — 대체 지도 사용", e);
     }
   }
-  return LeafletView(el);
+  return LeafletView(el, start);
 }
