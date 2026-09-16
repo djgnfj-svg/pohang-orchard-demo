@@ -388,6 +388,19 @@ small { font-size: 11px; color: var(--muted); font-weight: 400; }
     scrollbar-width: none;
   }
   .map-tools::-webkit-scrollbar { display: none; }
+  /* 가려진 버튼이 더 있다는 표시 — 양 끝 그림자. background-attachment local/scroll 조합이라
+     끝까지 밀면 그쪽 그림자는 저절로 사라진다 */
+  .map-tools {
+    background-image:
+      linear-gradient(to right, var(--surface), transparent),
+      linear-gradient(to left, var(--surface), transparent),
+      linear-gradient(to right, rgba(0, 0, 0, 0.22), transparent),
+      linear-gradient(to left, rgba(0, 0, 0, 0.22), transparent);
+    background-position: left center, right center, left center, right center;
+    background-repeat: no-repeat;
+    background-size: 16px 100%, 16px 100%, 10px 100%, 10px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
   .map-tools > *, .tool-pick > * { flex: none; }
   .map-tools button { padding: 7px 11px; } /* 손가락으로 누를 수 있게 */
   .map-hint { display: none; } /* 자리가 없다. 같은 안내가 아래 필지 상세에 있다 */
