@@ -6,8 +6,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
-<link rel="stylesheet" href="vendor/leaflet.css?v=202609160910">
-<link rel="stylesheet" href="style.css?v=202609160910">
+<link rel="stylesheet" href="vendor/leaflet.css?v=202609160937">
+<link rel="stylesheet" href="style.css?v=202609160937">
 
 <div class="shell">
   <header class="topbar">
@@ -46,14 +46,16 @@
      (스크립트는 누를 때 불러온다). ?map=naver로 열면 네이버 지도로 시작 -->
 <script>
   window.MAP_PARAM = new URLSearchParams(location.search).get("map");
+  // 루트 블로그의 서비스워커가 이 데모를 캐시해 옛 화면을 내보내는 걸 막는다 (sw.js 주석 참고)
+  navigator.serviceWorker?.register("sw.js").catch(() => {});
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="config.js?v=202609160910"></script>
-<script src="robot/haanmi57.js?v=202609160910"></script>
-<script src="vworld.js?v=202609160910"></script>
-<script src="regions.js?v=202609160910"></script>
-<script src="publicdata.js?v=202609160910"></script>
-<script src="mapview.js?v=202609160910"></script>
-<script src="robot.js?v=202609160910"></script>
-<script src="app.js?v=202609160910"></script>
-<script src="search.js?v=202609160910"></script>
+<script src="config.js?v=202609160937"></script>
+<script src="robot/haanmi57.js?v=202609160937"></script>
+<script src="vworld.js?v=202609160937"></script>
+<script src="regions.js?v=202609160937"></script>
+<script src="publicdata.js?v=202609160937"></script>
+<script src="mapview.js?v=202609160937"></script>
+<script src="robot.js?v=202609160937"></script>
+<script src="app.js?v=202609160937"></script>
+<script src="search.js?v=202609160937"></script>
