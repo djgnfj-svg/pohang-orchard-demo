@@ -88,11 +88,12 @@ async function openRobot3D(id) {
   el.innerHTML = `
     <div class="r3d-head">
       <h2>라이다 3D · ${esc(rm.title)}</h2>
+      <button type="button" class="r3d-north" title="지도와 같은 방향(위쪽이 북쪽)으로 되돌립니다" hidden>북쪽으로</button>
       <span class="r3d-status" role="status">불러오는 중…</span>
       <button type="button" class="r3d-close" aria-label="3D 카드 닫기">×</button>
     </div>
     <div class="r3d-view"></div>
-    <p class="r3d-hint">지도와 같이 위쪽이 북쪽 · 화면을 누른 뒤 WASD 이동(Shift 빠르게) · 드래그로 위아래 각도 · 휠 확대 · 오른쪽 드래그 이동 ·<b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑</b> 작업 구역 · 흰 점 홈</p>`;
+    <p class="r3d-hint">지도와 같이 위쪽이 북쪽 · 화면을 누른 뒤 WASD 이동(Shift 빠르게) · 드래그 회전 · 휠 확대 · 오른쪽 드래그 이동 ·<b class="robot-key is-path">주황</b> 주행 경로 · <b class="robot-key is-fence">파랑</b> 작업 구역 · 흰 점 홈</p>`;
   const card = { rm, el, dispose: () => {} };
   card3d = card;
   el.querySelector(".r3d-close").addEventListener("click", closeRobot3D);
@@ -103,7 +104,10 @@ async function openRobot3D(id) {
   try {
     const [buf] = await Promise.all([cached(`cloud:${rm.id}`, 24 * 60, () => fetchCloud(rm)), loadThree()]);
     if (card3d !== card) return; // 불러오는 사이 닫음
-    card.dispose = mountCloud(el.querySelector(".r3d-view"), rm, buf);
+    const north = el.querySelector(".r3d-north");
+    const view = mountCloud(el.querySelector(".r3d-view"), rm, buf, (facingNorth) => { north.hidden = facingNorth; });
+    north.addEventListener("click", view.faceNorth);
+    card.dispose = view.dispose;
     status.textContent = `${fmt(rm.cloud.count)}점 표시 · 원본 ${fmt(rm.lidar.points)}점`;
   } catch (e) {
     if (card3d === card) status.textContent = `불러오지 못했습니다 · ${e.message}`;
@@ -112,7 +116,8 @@ async function openRobot3D(id) {
 
 // 점 파일: Uint16 x·y·z(scale m 단위, N×3) 뒤에 Uint8 지면 위 높이(hagScale m 단위, N)
 // PCD 좌표(x 동 · y 북 · z 위) → three.js(x 동 · y 위 · z 남). 주행 경로 평균 위치가 원점
-function mountCloud(el, rm, buf) {
+// onFacing(true|false): 지금 북쪽을 보고 있는지 알려 준다 ("북쪽으로" 버튼을 숨기고 보이는 데 쓴다)
+function mountCloud(el, rm, buf, onFacing) {
   const { count: n, scale, hagScale } = rm.cloud;
   const q = new Uint16Array(buf, 0, n * 3);
   const hag = new Uint8Array(buf, n * 6, n);
@@ -149,10 +154,6 @@ function mountCloud(el, rm, buf) {
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = !reduceMotion;
   controls.maxPolarAngle = Math.PI * 0.495;
-  // 지도와 방향을 맞춘다 — 좌우 회전을 막아 화면 위쪽이 늘 북쪽이 되게.
-  // 점 좌표가 x 동 · z 남이라 OrbitControls의 방위각 0이 그대로 "북쪽을 바라봄"이다.
-  controls.minAzimuthAngle = 0;
-  controls.maxAzimuthAngle = 0;
 
   const owned = [];
   const add = (obj) => { scene.add(obj); owned.push(obj.geometry, obj.material); return obj; };
@@ -174,6 +175,44 @@ function mountCloud(el, rm, buf) {
   add(new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff })))
     .position.copy(v3(local[rm.route.home]));
 
+  // 지도와 방향 맞춤 — 처음엔 화면 위쪽이 북쪽으로 고정(좌우 회전 잠금)이고, 좌우로 끌면 풀린다.
+  // 그때 "북쪽으로" 버튼이 나타나고, 누르면 부드럽게 북쪽으로 돌아가 다시 잠긴다.
+  // 점 좌표가 x 동 · z 남이라 OrbitControls의 방위각 0이 그대로 "북쪽을 바라봄"이다.
+  const UP = new THREE.Vector3(0, 1, 0);
+  const arm = new THREE.Vector3();
+  let facing = true, turning = false;
+  const azimuth = () => Math.atan2(camera.position.x - controls.target.x, camera.position.z - controls.target.z);
+  function turn(delta) { // target을 축으로 카메라를 수평 회전 (방위각 += delta)
+    arm.subVectors(camera.position, controls.target).applyAxisAngle(UP, delta);
+    camera.position.copy(controls.target).add(arm);
+  }
+  function lockNorth() {
+    turn(-azimuth());
+    controls.minAzimuthAngle = 0;
+    controls.maxAzimuthAngle = 0;
+    turning = false;
+    facing = true;
+    onFacing?.(true);
+  }
+  function unlock() {
+    if (!facing) return;
+    controls.minAzimuthAngle = -Infinity;
+    controls.maxAzimuthAngle = Infinity;
+    facing = false;
+    onFacing?.(false);
+  }
+  const faceNorth = () => {
+    if (facing) return;
+    if (reduceMotion) lockNorth();
+    else turning = true; // 갑자기 튀지 않게 프레임마다 조금씩 돌린다
+  };
+  const turnToNorth = (dt) => {
+    const a = azimuth();
+    if (Math.abs(a) < 0.01) return lockNorth();
+    turn(-Math.sign(a) * Math.min(Math.abs(a), Math.max(0.6, Math.abs(a) * 3.5) * dt));
+  };
+  lockNorth();
+
   // WASD 이동 — 3D 화면을 누른 뒤(포커스)에만 동작. 보는 방향 기준 수평 이동, Shift는 3배.
   // 한글 입력 상태에서도 되도록 e.key가 아니라 e.code(물리 키)로 판단
   const MOVE = { KeyW: [0, 1], KeyS: [0, -1], KeyA: [-1, 0], KeyD: [1, 0] };
@@ -182,6 +221,14 @@ function mountCloud(el, rm, buf) {
   const canvas = renderer.domElement;
   canvas.tabIndex = 0;
   canvas.addEventListener("pointerdown", () => canvas.focus({ preventScroll: true }));
+  let dragFrom = null; // 왼쪽 버튼으로 끌기 시작한 x
+  canvas.addEventListener("pointerdown", (e) => { dragFrom = e.button === 0 ? e.clientX : null; });
+  canvas.addEventListener("pointermove", (e) => {
+    if (dragFrom === null) return;
+    if (Math.abs(e.clientX - dragFrom) > 6) { unlock(); dragFrom = null; }
+  });
+  canvas.addEventListener("pointerup", () => { dragFrom = null; });
+  canvas.addEventListener("pointercancel", () => { dragFrom = null; });
   const onKey = (e) => {
     fast = e.shiftKey;
     if (!MOVE[e.code]) return;
@@ -212,6 +259,7 @@ function mountCloud(el, rm, buf) {
     const now = performance.now();
     const dt = Math.min(0.1, (now - last) / 1000); // 탭을 오래 비웠다 돌아와도 한 번에 멀리 가지 않게
     last = now;
+    if (turning) turnToNorth(dt);
     if (held.size) walk(dt);
     controls.update();
     renderer.render(scene, camera);
@@ -225,11 +273,14 @@ function mountCloud(el, rm, buf) {
   });
   ro.observe(el);
   frame();
-  return () => {
-    cancelAnimationFrame(raf);
-    ro.disconnect();
-    controls.dispose();
-    owned.forEach((x) => x.dispose());
-    renderer.dispose();
+  return {
+    faceNorth,
+    dispose() {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      controls.dispose();
+      owned.forEach((x) => x.dispose());
+      renderer.dispose();
+    },
   };
 }
