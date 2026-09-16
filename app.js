@@ -47,7 +47,7 @@ const src = (key) => `<span class="src" title="데이터 출처">${esc(SRC[key])
 // ---------------------------------------------------------------------------
 // 지도 — 기본 Leaflet + VWorld. 지도 도구의 "네이버" 버튼으로 같은 위치를 네이버 지도로 바꿔 본다 (mapview.js)
 // ---------------------------------------------------------------------------
-let mapView = createMapView($("#map"), "vworld");
+let mapView = createMapView($("#map"), "leaflet");
 const mapClickHandlers = [];
 let activeBase = "sat";
 let cadastralOn = true; // 지적도 기본 표시 (확대했을 때만 보임)
@@ -67,22 +67,36 @@ function hideMapNote() {
 const tools = document.createElement("div");
 tools.className = "map-tools";
 $(".map-wrap").appendChild(tools);
+// 도구 막대는 세 가지가 섞여 있어 모양으로 구별한다.
+//   고르기(둘 중 하나) = 이어 붙인 칸, 고른 쪽이 진한 색   — 배경지도(위성·일반), 지도 종류(VWorld·네이버)
+//   켜고 끄기          = 낱개 칸, 켜면 연한 색 + 색 점      — 지적도·라이다·경로
+//   한 번 하는 일      = 테두리만                          — 전체 보기
 function renderTools() {
   const btn = (id, label, pressed, attrs = "") => `<button type="button" id="${id}" ${attrs} aria-pressed="${pressed}">${label}</button>`;
-  tools.innerHTML = [
-    btn("map-sat", "위성", activeBase === "sat", 'data-base="sat"'),
-    btn("map-base", "일반", activeBase === "base", 'data-base="base"'),
-    mapView.bases.includes("cadastral") ? btn("map-cad", "지적도", cadastralOn) : "",
-    ROBOT_MAPS.length ? btn("map-lidar", "라이다", robotShow.lidar, 'data-robot="lidar"') + btn("map-route", "경로", robotShow.route, 'data-robot="route"') : "",
-    hasNaverKey ? btn("map-naver", switchingMap ? "여는 중…" : "네이버", mapView.kind === "naver", `data-map="1"${switchingMap ? " disabled" : ""}`) : "",
-    '<button type="button" id="map-all">전체 보기</button>',
-  ].join("");
+  const dot = (style) => `<i class="tool-dot" style="${style}" aria-hidden="true"></i>`;
+  const pick = (label, inner) => `<span class="tool-pick" role="group" aria-label="${label}">${inner}</span>`;
+  const rm = ROBOT_MAPS[0];
+  const groups = [
+    pick("배경지도",
+      btn("map-sat", "위성", activeBase === "sat", 'data-base="sat"')
+      + btn("map-base", "일반", activeBase === "base", 'data-base="base"')),
+    [
+      mapView.bases.includes("cadastral") ? btn("map-cad", dot("background:var(--line-strong)") + "지적도", cadastralOn, 'title="필지 경계선"') : "",
+      rm ? btn("map-lidar", dot(`background:${heightGradient(rm.lidar.legend)}`) + "라이다", robotShow.lidar, 'data-robot="lidar" title="로봇 라이다 평면 영상 (지면 위 높이 색)"') : "",
+      rm ? btn("map-route", dot(`background:${ROBOT_PATH_HEX}`) + "경로", robotShow.route, 'data-robot="route" title="로봇 주행 경로 · 작업 구역"') : "",
+    ].join(""),
+    hasNaverKey ? pick("지도 종류",
+      btn("map-vworld", "VWorld", mapView.kind !== "naver", 'data-map="vworld" title="VWorld 위성·지적도 (기본)"')
+      + btn("map-naver", switchingMap ? "여는 중…" : "네이버", mapView.kind === "naver", `data-map="naver" title="네이버 지도로 같은 자리 비교"${switchingMap ? " disabled" : ""}`)) : "",
+    '<button type="button" id="map-all" class="tool-do">전체 보기</button>',
+  ].filter(Boolean);
+  tools.innerHTML = groups.join('<i class="tool-sep" aria-hidden="true"></i>');
 }
 tools.addEventListener("click", (ev) => {
   const b = ev.target.closest("button");
   if (!b) return;
   if (b.id === "map-all") return fitAll();
-  if (b.dataset.map) return switchMap(mapView.kind === "naver" ? "vworld" : "naver");
+  if (b.dataset.map) return switchMap(b.dataset.map);
   if (b.id === "map-cad") {
     cadastralOn = !cadastralOn;
     mapView.toggleCadastral(cadastralOn);
@@ -143,12 +157,13 @@ function replaceMapView(kind, note) {
 }
 
 async function switchMap(kind) {
-  if (switchingMap || mapView.kind === kind) return;
+  const want = kind === "naver" ? "naver" : "leaflet"; // VWorld 쪽 어댑터의 kind는 "leaflet"
+  if (switchingMap || mapView.kind === want) return;
   switchingMap = true;
   renderTools();
   try {
-    if (kind === "naver") await loadNaverMaps();
-    replaceMapView(kind);
+    if (want === "naver") await loadNaverMaps();
+    replaceMapView(want);
   } catch (e) {
     showMapNote(e.message);
   } finally {
@@ -160,7 +175,7 @@ async function switchMap(kind) {
 // 네이버 지도가 안 뜨면(인증 실패, URL 미등록, 서버 오류) Leaflet + VWorld로 되돌린다
 function fallbackToLeaflet(message) {
   if (mapView.kind !== "naver") return;
-  replaceMapView("vworld", message);
+  replaceMapView("leaflet", message);
 }
 window.navermap_authFailure = () => fallbackToLeaflet(NAVER_FAIL_NOTE);
 
