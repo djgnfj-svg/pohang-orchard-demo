@@ -108,9 +108,10 @@ function NaverView(el, start) {
         const [sw, ne] = rm.lidar.bounds;
         robot[rm.id] = {
           lidar: [new nm.GroundOverlay(rm.lidar.image, new nm.LatLngBounds(ll(sw), ll(ne)))],
+          // zIndex 30 — 필지 채우기(10·20)보다 위, 핀(100)보다 아래. Leaflet의 robot-route pane과 순서를 맞춘다
           route: [
-            ...rm.fences.map((f) => new nm.Polygon({ paths: [f.ring.map(ll)], clickable: false, strokeColor: ROBOT_FENCE_HEX, strokeWeight: 2, strokeStyle: "shortdash", fillOpacity: 0 })),
-            ...lines.map((line) => new nm.Polyline({ path: line.map(ll), clickable: false, strokeColor: ROBOT_PATH_HEX, strokeWeight: 2.5 })),
+            ...rm.fences.map((f) => new nm.Polygon({ paths: [f.ring.map(ll)], clickable: false, zIndex: 30, strokeColor: ROBOT_FENCE_HEX, strokeWeight: 2, strokeStyle: "shortdash", fillOpacity: 0 })),
+            ...lines.map((line) => new nm.Polyline({ path: line.map(ll), clickable: false, zIndex: 30, strokeColor: ROBOT_PATH_HEX, strokeWeight: 2.5 })),
             new nm.Marker({ position: ll(home), clickable: false, zIndex: 50, icon: { content: ROBOT_HOME_HTML, anchor: new nm.Point(0, 0) } }),
           ],
         };
