@@ -62,10 +62,14 @@ const JIMOK = {
   원: "유원지", 종: "종교용지", 사: "사적지", 묘: "묘지", 잡: "잡종지",
 };
 
-// [[lat, lon], ...] 고리 면적(㎡) — 필지 크기에서는 평면 근사로 충분
+// [[lat, lon], ...] 고리 면적(㎡) — 필지 크기에서는 평면 근사로 충분.
+// 다만 1도당 거리는 위도에 따라 달라서, 흔히 쓰는 고정값(111320 / 110540)을 쓰면
+// 우리 위도에서 면적이 0.5%쯤 작게 나온다. WGS84 자오선·평행권 길이를 위도별로 쓴다.
 function ringArea(ring) {
   const lat0 = ring.reduce((a, p) => a + p[0], 0) / ring.length;
-  const kx = 111320 * Math.cos((lat0 * Math.PI) / 180), ky = 110540;
+  const f = (lat0 * Math.PI) / 180;
+  const kx = 111412.84 * Math.cos(f) - 93.5 * Math.cos(3 * f); // 경도 1도(m)
+  const ky = 111132.92 - 559.82 * Math.cos(2 * f) + 1.175 * Math.cos(4 * f); // 위도 1도(m)
   let a = 0;
   for (let i = 0; i < ring.length; i++) {
     const [y1, x1] = ring[i], [y2, x2] = ring[(i + 1) % ring.length];
