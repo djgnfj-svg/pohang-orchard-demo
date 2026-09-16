@@ -90,7 +90,7 @@ async function openRobot3D(id) {
     <div class="r3d-head">
       <h2>라이다 3D · ${esc(rm.title)}</h2>
       <label class="r3d-sync" title="지도처럼 위쪽이 북쪽이 되게 방향을 고정합니다">
-        <input type="checkbox" id="r3d-sync"${sync3d ? " checked" : ""}> 지도와 방향 맞춤
+        <input type="checkbox" id="r3d-sync"${sync3d ? " checked" : ""}> <span class="r3d-sync-long">지도와 </span>방향 맞춤
       </label>
       <span class="r3d-status" role="status">불러오는 중…</span>
       <button type="button" class="r3d-close" aria-label="3D 카드 닫기">×</button>
