@@ -1,19 +1,17 @@
-// ---------------------------------------------------------------------------
-// 설정 · 데이터 출처 이름 — 화면에는 실제 데이터만 표시한다 (목업 없음)
-// ---------------------------------------------------------------------------
+// 설정 · 데이터 출처 이름
 
-// VWorld 인증키 — 지도 타일·지적도·검색을 브라우저에서 직접 호출하므로 페이지에 노출되는 키.
+// VWorld 키 — 브라우저에서 호출하므로 노출돼도 되는 키. 개발키라 3개월마다 연장(최대 3회)
 const VWORLD_KEY = "9D089910-1218-40D6-A39F-7CBD242DF2D1";
 
-// 네이버 지도 Client ID — 지도를 브라우저에서 직접 부르므로 노출되는 키.
-// 콘솔의 Web 서비스 URL에 등록된 주소(djgnfj-svg.github.io)에서만 인증된다 → localhost에서는 항상 실패한다.
+// 네이버 지도 Client ID — 콘솔 Web 서비스 URL에 등록된 주소만 인증된다 (지금은 github.io뿐, demo·localhost 등록 필요)
 const NAVER_CLIENT_ID = "v33u514rqa";
 
-// 공공데이터포털 중계(Cloudflare Worker, 저장소 worker/). 서비스키는 Worker 비밀값에만 있다.
-const PROXY_URL = "https://pohang-orchard-proxy.djgnfj89239272.workers.dev/";
+// 공공데이터포털 중계 — 같은 주소의 /api/를 backend/가 받는다. github.io 배포본은 백엔드가 없어 Cloudflare Worker로
+const PROXY_URL = location.hostname.endsWith("github.io")
+  ? "https://pohang-orchard-proxy.djgnfj89239272.workers.dev/"
+  : "api/";
 
-// 공유 필지 — 데모를 여는 모든 사람에게 보이는 필지 (삭제 불가, 처음 열면 첫 필지 선택).
-// PNU·주소·중심 좌표만 두고 경계·지목·면적은 열 때마다 VWorld에서 조회한다.
+// 공유 필지 — 모두에게 보이고 삭제 불가. 경계·지목·면적은 열 때마다 VWorld에서 조회
 const SHARED_PARCELS = [
   { pnu: "5176033025100570000", address: "강원특별자치도 평창군 대화면 하안미리 57", lat: 37.45997, lon: 128.49597 },
 ];

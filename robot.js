@@ -1,8 +1,4 @@
-// ---------------------------------------------------------------------------
-// 로봇 작업 맵 — 로봇 라이다 맵(PCD)과 웨이포인트 맵(CSV)을 필지에 붙여 보여준다
-// 데이터: tools/build_robotmap.py가 만든 robot/<이름>.js (ROBOT_MAPS에 추가됨)
-// 지도 겹침은 mapview.js의 setRobotMap, 이 파일은 필지 상세 섹션과 3D 보기
-// ---------------------------------------------------------------------------
+// 로봇 작업 맵 — 필지 상세 섹션과 3D 보기 (데이터는 tools/build_robotmap.py가 만든 robot/<이름>.js)
 const THREE_URLS = [
   "https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js",
   "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js",
@@ -17,6 +13,7 @@ function heightGradient(legend) {
   return `linear-gradient(90deg, ${legend.map(([m, c]) => `${c} ${((m / top) * 100).toFixed(1)}%`).join(", ")})`;
 }
 
+// 로봇 데이터가 지적도 경계보다 15m쯤 밀려 보이는 건 연속지적도 오차다 (위성영상과 맞는 건 로봇 쪽)
 function renderRobotMap(p) {
   const rm = robotMapOf(p);
   if (!rm) return "";
@@ -40,9 +37,7 @@ function renderRobotMap(p) {
   </div>`;
 }
 
-// ---------------------------------------------------------------------------
 // 3D 보기 — three.js는 처음 열 때만 불러온다
-// ---------------------------------------------------------------------------
 function loadScript(url) {
   return new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -114,9 +109,7 @@ async function openRobot3D(id) {
   }
 }
 
-// 점 파일: Uint16 x·y·z(scale m 단위, N×3) 뒤에 Uint8 지면 위 높이(hagScale m 단위, N)
-// PCD 좌표(x 동 · y 북 · z 위) → three.js(x 동 · y 위 · z 남). 주행 경로 평균 위치가 원점
-// onFacing(true|false): 지금 북쪽을 보고 있는지 알려 준다 ("북쪽으로" 버튼을 숨기고 보이는 데 쓴다)
+// 점 파일(Uint16 x·y·z N×3 + Uint8 지면 위 높이 N)을 three.js 좌표(x 동 · y 위 · z 남, 원점 = 주행 경로 평균)로
 function mountCloud(el, rm, buf, onFacing) {
   const { count: n, scale, hagScale } = rm.cloud;
   const q = new Uint16Array(buf, 0, n * 3);
@@ -175,9 +168,7 @@ function mountCloud(el, rm, buf, onFacing) {
   add(new THREE.Mesh(new THREE.SphereGeometry(0.7, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffffff })))
     .position.copy(v3(local[rm.route.home]));
 
-  // 지도와 방향 맞춤 — 처음엔 화면 위쪽이 북쪽으로 고정(좌우 회전 잠금)이고, 좌우로 끌면 풀린다.
-  // 그때 "북쪽으로" 버튼이 나타나고, 누르면 부드럽게 북쪽으로 돌아가 다시 잠긴다.
-  // 점 좌표가 x 동 · z 남이라 OrbitControls의 방위각 0이 그대로 "북쪽을 바라봄"이다.
+  // 처음엔 위쪽이 북쪽으로 잠겨 있고(방위각 0 = 북쪽) 좌우로 끌면 풀린다. "북쪽으로"를 누르면 돌아가 다시 잠김
   const UP = new THREE.Vector3(0, 1, 0);
   const arm = new THREE.Vector3();
   let facing = true, turning = false;
@@ -213,8 +204,7 @@ function mountCloud(el, rm, buf, onFacing) {
   };
   lockNorth();
 
-  // WASD 이동 — 3D 화면을 누른 뒤(포커스)에만 동작. 보는 방향 기준 수평 이동, Shift는 3배.
-  // 한글 입력 상태에서도 되도록 e.key가 아니라 e.code(물리 키)로 판단
+  // WASD 이동 (화면을 누른 뒤에만, Shift 3배). 한글 입력 상태에서도 되게 e.code로 판단
   const MOVE = { KeyW: [0, 1], KeyS: [0, -1], KeyA: [-1, 0], KeyD: [1, 0] };
   const held = new Set();
   let fast = false;

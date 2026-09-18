@@ -51,18 +51,41 @@ let mapView = createMapView($("#map"), "leaflet");
 const mapClickHandlers = [];
 let activeBase = "sat";
 let cadastralOn = true; // 지적도 기본 표시 (확대했을 때만 보임)
+let windOn = false;
+let windReloadTimer = null;
+
+async function reloadWindField() {
+  if (!windOn || mapView.kind === "naver") return;
+  try {
+    const data = await loadWindField(mapView.raw.getBounds(), 4);
+    mapView.setWindField?.(data);
+  } catch (e) {
+    console.error("바람장 갱신 실패", e);
+  }
+}
+
+function scheduleWindReload() {
+  if (!windOn) return;
+  clearTimeout(windReloadTimer);
+  windReloadTimer = setTimeout(reloadWindField, 500);
+}
+
 const robotShow = { lidar: true, route: true }; // 로봇 라이다 영상 · 주행 경로 (robot.js)
 const hasNaverKey = typeof NAVER_CLIENT_ID === "string" && !!NAVER_CLIENT_ID;
 let switchingMap = false; // 네이버 스크립트를 불러오는 중
 
+let mapNoteTimer = null;
 function showMapNote(text) {
   const note = $("#map-note");
   note.textContent = text;
   note.hidden = false;
+  clearTimeout(mapNoteTimer);
+  mapNoteTimer = setTimeout(hideMapNote, 3000); // 3초 뒤 자동으로 사라짐
 }
 function hideMapNote() {
   $("#map-note").hidden = true;
 }
+$("#map-note-close").addEventListener("click", hideMapNote);
 
 const tools = document.createElement("div");
 tools.className = "map-tools";
@@ -89,10 +112,11 @@ function renderTools() {
       btn("map-vworld", "VWorld", mapView.kind !== "naver", 'data-map="vworld" title="VWorld 위성·지적도 (기본)"')
       + btn("map-naver", switchingMap ? "여는 중…" : "네이버", mapView.kind === "naver", `data-map="naver" title="네이버 지도로 같은 자리 비교"${switchingMap ? " disabled" : ""}`)) : "",
     '<button type="button" id="map-all" class="tool-do">전체 보기</button>',
+    `<button type="button" id="map-wind" class="tool-do" aria-pressed="${windOn}">바람장</button>`,
   ].filter(Boolean);
   tools.innerHTML = groups.join('<i class="tool-sep" aria-hidden="true"></i>');
 }
-tools.addEventListener("click", (ev) => {
+tools.addEventListener("click", async (ev) => {
   const b = ev.target.closest("button");
   if (!b) return;
   if (b.id === "map-all") return fitAll();
@@ -107,10 +131,37 @@ tools.addEventListener("click", (ev) => {
     mountRobotMaps();
     return renderTools();
   }
+  if (b.id === "map-wind") {
+    windOn = !windOn;
+    b.setAttribute("aria-pressed", String(windOn));
+    if (windOn) {
+      if (mapView.kind === "naver") {
+        windOn = false;
+        b.setAttribute("aria-pressed", "false");
+        return;
+      }
+      b.textContent = "불러오는 중…";
+      try {
+        const data = await loadWindField(mapView.raw.getBounds(), 4);
+        mapView.setWindField?.(data);
+      } catch (e) {
+        console.error("바람장 불러오기 실패", e);
+        windOn = false;
+        b.setAttribute("aria-pressed", "false");
+      } finally {
+        b.textContent = "바람장";
+      }
+    } else {
+      clearTimeout(windReloadTimer);
+      mapView.setWindField?.(null);
+    }
+    return renderTools();
+  }
   activeBase = b.dataset.base;
   mapView.setBase(activeBase);
   renderTools();
-});
+}
+);
 
 function onMapClick(cb) {
   mapClickHandlers.push(cb);
@@ -128,6 +179,8 @@ function mountParcels() {
   allParcels().forEach(drawParcel);
   if (cadastralOn) mapView.toggleCadastral(true);
   renderTools();
+  mapView.raw.off?.("moveend", scheduleWindReload); // ← 추가
+  mapView.raw.on?.("moveend", scheduleWindReload);  // ← 추가
 }
 mountParcels();
 // 3D 카드를 열고 닫는 등 지도 칸 크기가 바뀌면 지도를 다시 맞춤

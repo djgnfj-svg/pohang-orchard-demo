@@ -10,7 +10,10 @@ const ROBOT_FENCE_HEX = "#5fb0ff";
 const HOME = { center: [36.13, 129.25], zoom: 11 }; // 포항시 북구 일대
 
 function pinHtml(p, selected) {
-  return `<div class="pin-wrap"><div class="pin${selected ? " is-selected" : ""}">${esc(p.label)}</div></div>`;
+  const wind = p.wind
+    ? `<div class="pin-wind" style="transform: translate(-50%, calc(-100% - 34px)) rotate(${(p.wind.dir + 180) % 360}deg)">↑<small style="transform: rotate(${-((p.wind.dir + 180) % 360)}deg)">${p.wind.speed}m/s</small></div>`
+    : "";
+  return `<div class="pin-wrap"><div class="pin${selected ? " is-selected" : ""}">${esc(p.label)}</div>${wind}</div>`;
 }
 
 // 로봇 웨이포인트 연결선 [[위도, 경도] ×2] 목록과 홈 노드 위치
@@ -95,8 +98,12 @@ function NaverView(el, start) {
       else map.morph(c, zoom, { duration: 700 });
     },
     view() {
-      const c = map.getCenter();
-      return { lat: c.lat(), lon: c.lng(), zoom: map.getZoom() };
+      try {
+        const c = map.getCenter();
+        return { lat: c.lat(), lon: c.lng(), zoom: map.getZoom() };
+      } catch {
+        return null;
+      }
     },
     onClick(cb) {
       nm.Event.addListener(map, "click", (e) => { if (!suppressMapClick) cb(e.coord.lat(), e.coord.lng()); });
@@ -117,9 +124,20 @@ function NaverView(el, start) {
         };
       }
       const x = robot[rm.id];
-      x.lidar.forEach((o) => o.setMap(show.lidar ? map : null));
-      x.route.forEach((o) => o.setMap(show.route ? map : null));
+      if (show.lidar) x.lidar.addTo(map);
+      else x.lidar.remove();
+      if (show.route) x.route.addTo(map);
+      else x.route.remove();
     },
+    // setWindField(data) {        // ← 이 메서드 추가
+    //   if (windLayer) map.removeLayer(windLayer);
+    //   if (!data) { windLayer = null; return; }
+    //   windLayer = L.velocityLayer({
+    //     displayValues: true,
+    //     displayOptions: { velocityType: "GFS 바람", position: "bottomleft", emptyString: "바람 자료 없음" },
+    //     data, maxVelocity: 15, velocityScale: 0.01,
+    //   }).addTo(map);
+    // },
     destroy() {
       try { map.destroy(); } catch { /* 인증 실패 상태에서는 destroy가 실패할 수 있음 */ }
       el.innerHTML = "";
@@ -166,10 +184,14 @@ function LeafletView(el, start) {
   map.createPane("robot-lidar").style.zIndex = 410;
   map.createPane("robot-route").style.zIndex = 450;
   map.getPane("robot-route").style.pointerEvents = "none";
+  map.createPane("wind").style.zIndex = 460;        // 로봇 경로(450)보다 위
+  map.getPane("wind").style.pointerEvents = "none";  
   const robot = {};
+  let windLayer = null;
 
   return {
     kind: "leaflet",
+    raw: map,
     bases: cadastral ? ["sat", "base", "cadastral"] : ["sat", "base"],
     setBase(k) {
       if (k === active) return;
@@ -241,6 +263,19 @@ function LeafletView(el, start) {
       else x.lidar.remove();
       if (show.route) x.route.addTo(map);
       else x.route.remove();
+    },
+    setWindField(data) {
+      if (windLayer) { map.removeLayer(windLayer); windLayer = null; }
+      if (!data) return;
+      console.log("바람 데이터:", data);
+      windLayer = L.velocityLayer({
+        displayValues: true,
+        displayOptions: { velocityType: "GFS 바람", position: "bottomleft", emptyString: "바람 자료 없음" },
+        data, maxVelocity: 15, velocityScale: 0.01,
+      }).addTo(map);
+      const canvas = map.getContainer().querySelector(".leaflet-velocity-overlay");
+      if (canvas) map.getPane("wind").appendChild(canvas);
+      console.log("레이어 추가됨?", map.hasLayer(windLayer));
     },
     destroy() { map.remove(); el.innerHTML = ""; el.classList.remove("no-tiles"); },
   };

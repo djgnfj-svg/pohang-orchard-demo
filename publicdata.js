@@ -268,6 +268,29 @@ function loadPest(pnu) {
   });
 }
 
+// GFS(Open-Meteo) — 키·Worker 없이 직접 호출. 단기예보와 비교용 참고 자료.
+function loadGfs(lat, lon) {
+  return cached(`gfs:${lat.toFixed(3)},${lon.toFixed(3)}`, 60, async () => {
+    const params = new URLSearchParams({
+      latitude: lat, longitude: lon,
+      hourly: "temperature_2m,windspeed_10m,winddirection_10m,precipitation",  // ← winddirection_10m 추가
+      models: "gfs_seamless", timezone: "Asia/Seoul", forecast_days: "7",
+      wind_speed_unit: "ms",
+    });
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) throw new Error(`GFS 응답 오류 (${r.status})`);
+    const j = await r.json();
+    const { time, temperature_2m, windspeed_10m, winddirection_10m, precipitation } = j.hourly;
+    const rows = time.map((t, i) => ({
+      time: t, temp: temperature_2m[i], wind: windspeed_10m[i], dir: winddirection_10m[i], precip: precipitation[i],
+    }));
+    // 현재 시각과 가장 가까운 한 시간 — 지도 화살표용
+    const nowIso = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 13);
+    const now = rows.find((r) => r.time.startsWith(nowIso)) ?? rows[0];
+    return { rows, now: { dir: now.dir, speed: now.wind } };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // 선택한 필지에 필요한 자료를 한 번씩 불러오고, 끝나면 상세 패널을 다시 그림
 // ---------------------------------------------------------------------------
@@ -277,12 +300,16 @@ function ensurePublicData(p) {
     if (p.pd[key]) return;
     p.pd[key] = { status: "loading" };
     fn()
-      .then((data) => { p.pd[key] = { status: "ok", data }; })
+      .then((data) => {
+        p.pd[key] = { status: "ok", data };
+        if (key === "gfs") { p.wind = data.now; renderMap(); }  // ← 추가
+      })
       .catch((e) => { p.pd[key] = { status: "error", error: e.message }; })
       .finally(() => { if (current() === p) renderDetail(); });
   };
   start("now", () => loadNow(p.lat, p.lon));
   start("short", () => loadShort(p.lat, p.lon));
+  start("gfs", () => loadGfs(p.lat, p.lon));
   const region = regionOf(p.address); // 주소가 아직 없으면(조회 중) 다음 렌더 때 시작
   if (region) {
     start("mid", () => loadMid(region));
@@ -329,7 +356,21 @@ function renderPublicData(p) {
       </table></div>
       <p class="d-note">${s.nextRain ? `다음 ${esc(s.nextRain.kind)} ${esc(s.nextRain.at)} (강수확률 ${s.nextRain.pop}%)` : "단기예보 기간에 비 소식 없음"} · 앞으로 24시간 최대풍속 ${s.maxWind24}m/s</p>
       <p class="d-note">${esc(s.days[0]?.label ?? "")}~${esc(s.days.at(-1)?.label ?? "")} 단기예보 ${esc(s.base)} 발표(이 위치 격자)${mid.length ? ` · 이후 중기예보 ${esc(pd.mid.data.base)} 발표(${esc(pd.mid.data.where)})` : pd.mid?.status === "loading" ? " · 중기예보 불러오는 중" : ""}</p>`;
-  }));
+  
+  
+    }));
+
+  parts.push(pdSection("GFS 예측(참고)", [], pd.gfs, (gfs) => {
+    const daily = gfs.rows.filter((_, i) => i % 24 === 12); // 하루 1개(낮 12시)씩만 요약
+    return `<div class="scroll-x"><table class="data-table">
+      <thead><tr><th>일시</th><th>기온</th><th>풍속</th><th>강수</th></tr></thead>
+      <tbody>${daily.map((row) => `<tr>
+        <td>${row.time.slice(5, 16).replace("T", " ")}</td>
+        <td class="mono">${row.temp}℃</td><td class="mono">${row.wind}m/s</td><td class="mono">${row.precip}mm</td>
+      </tr>`).join("")}</tbody>
+    </table></div>
+    <p class="d-note">GFS(전지구예보모델) 기반 — 기상청 단기예보와 다른 모델이니 참고용으로만 보세요</p>`;
+    }));
 
   // 주소를 끝내 못 찾은 위치(바다 등)는 특보 구역을 정할 수 없음
   const noRegion = p.status !== "loading" && !regionOf(p.address);

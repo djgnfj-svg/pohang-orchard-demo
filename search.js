@@ -1,7 +1,4 @@
-// ---------------------------------------------------------------------------
-// 주소 검색 · 지도 클릭 → 그 위치의 필지(VWorld 연속지적도)를 선택
-// 검색 순서: 내 필지 주소 → VWorld 검색 → 네이버 Geocoding(?map=naver) → OSM Nominatim
-// ---------------------------------------------------------------------------
+// 주소 검색 · 지도 클릭 → 그 위치의 필지 선택. 검색 순서: 내 필지 → VWorld → 네이버 → OSM Nominatim
 const searchForm = $("#search-form");
 const searchInput = $("#search-input");
 const searchBtn = $("#search-btn");
